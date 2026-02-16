@@ -1,0 +1,66 @@
+{
+  "profiles": {
+    "north_africa": {
+      "name": "North Africa Region",
+      "description": "Scan North African countries",
+      "countries": ["MA", "DZ", "TN", "LY", "EG"]
+    },
+    "middle_east": {
+      "name": "Middle East Region",
+      "description": "Scan Middle Eastern countries",
+      "countries": ["SA", "AE", "IL", "TR", "IQ", "IR", "JO", "LB"]
+    },
+    "european_union": {
+      "name": "European Union",
+      "description": "Scan EU member states",
+      "countries": ["DE", "FR", "IT", "ES", "NL", "BE", "PL", "SE", "AT", "DK", "FI", "IE", "PT", "GR", "CZ", "HU", "RO"]
+    },
+    "north_america": {
+      "name": "North America",
+      "description": "Scan North American countries",
+      "countries": ["US", "CA", "MX"]
+    },
+    "asia_pacific": {
+      "name": "Asia Pacific",
+      "description": "Scan Asia-Pacific countries",
+      "countries": ["CN", "JP", "KR", "IN", "SG", "AU", "NZ", "TH", "VN", "MY", "PH", "ID"]
+    },
+    "south_america": {
+      "name": "South America",
+      "description": "Scan South American countries",
+      "countries": ["BR", "AR", "CL", "CO", "PE", "VE"]
+    },
+    "africa": {
+      "name": "African Continent",
+      "description": "Scan African countries",
+      "countries": ["MA", "DZ", "TN", "EG", "ZA", "NG", "KE", "GH", "ET"]
+    },
+    "critical_infrastructure": {
+      "name": "High-Risk Critical Infrastructure",
+      "description": "Countries with significant industrial IoT exposure",
+      "countries": ["US", "CN", "DE", "JP", "GB", "FR", "RU", "IN"]
+    }
+  },
+  "custom_queries": {
+    "medical_devices": {
+      "name": "Medical IoT Devices",
+      "query": "\"medical\" OR \"healthcare\" port:80,443,8080",
+      "risk_level": "CRITICAL"
+    },
+    "transportation": {
+      "name": "Transportation Systems",
+      "query": "\"traffic\" OR \"railway\" OR \"airport\"",
+      "risk_level": "HIGH"
+    },
+    "energy_sector": {
+      "name": "Energy & Utilities",
+      "query": "\"power\" OR \"energy\" OR \"solar\" port:502,2404",
+      "risk_level": "CRITICAL"
+    },
+    "telecommunications": {
+      "name": "Telecom Infrastructure",
+      "query": "\"router\" OR \"modem\" OR \"gateway\" port:23,80,443",
+      "risk_level": "HIGH"
+    }
+  }
+}

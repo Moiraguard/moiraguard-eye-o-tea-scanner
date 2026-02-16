@@ -1,0 +1,1796 @@
+#!/usr/bin/env python3
+"""
+╔═══════════════════════════════════════════════════════════════════════╗
+║                                                                       ║
+║   ███╗   ███╗ ██████╗ ██╗██████╗  █████╗  ██████╗ ██╗   ██╗ █████╗ ██████╗ ██████╗   ║
+║   ████╗ ████║██╔═══██╗██║██╔══██╗██╔══██╗██╔════╝ ██║   ██║██╔══██╗██╔══██╗██╔══██╗  ║
+║   ██╔████╔██║██║   ██║██║██████╔╝███████║██║  ███╗██║   ██║███████║██████╔╝██║  ██║  ║
+║   ██║╚██╔╝██║██║   ██║██║██╔══██╗██╔══██║██║   ██║██║   ██║██╔══██║██╔══██╗██║  ██║  ║
+║   ██║ ╚═╝ ██║╚██████╔╝██║██║  ██║██║  ██║╚██████╔╝╚██████╔╝██║  ██║██║  ██║██████╔╝  ║
+║   ╚═╝     ╚═╝ ╚═════╝ ╚═╝╚═╝  ╚═╝╚═╝  ╚═╝ ╚═════╝  ╚═════╝ ╚═╝  ╚═╝╚═╝  ╚═╝╚═════╝   ║
+║                                                                       ║
+║                           👁️  Eye - O - Tea (IoT)                    ║
+║              Global IoT/IIoT Infrastructure Reconnaissance            ║
+║                 Monitoring IoT Reconnaissance & Guard                 ║
+║                                                                       ║
+╚═══════════════════════════════════════════════════════════════════════╝
+
+Author: Mohammed Amine Moulay (@MLY)
+DEFCON GROUP CASANLANCA 2026 | IoT Security Research
+Version: 1.0-MOIRAGUARD
+License: Research & Educational Use Only
+
+[WARNING] This tool is for security research and education only.
+[WARNING] Unauthorized access to systems is illegal.
+[WARNING] Use responsibly and ethically.
+"""
+
+import shodan
+import sys
+import time
+from datetime import datetime
+from collections import defaultdict
+import os
+import json
+import csv
+from pathlib import Path
+import base64
+import matplotlib
+matplotlib.use('Agg')  # Non-interactive backend
+import matplotlib.pyplot as plt
+import matplotlib.patches as mpatches
+from matplotlib.offsetbox import OffsetImage, AnnotationBbox
+
+# ╔═══════════════════════════════════════════════════════════════════╗
+# ║                         COLOR SCHEMES                             ║
+# ╚═══════════════════════════════════════════════════════════════════╝
+
+class Colors:
+    RED = '\033[91m'
+    GREEN = '\033[92m'
+    YELLOW = '\033[93m'
+    BLUE = '\033[94m'
+    MAGENTA = '\033[95m'
+    CYAN = '\033[96m'
+    WHITE = '\033[97m'
+    ORANGE = '\033[38;5;208m'
+    PURPLE = '\033[38;5;135m'
+    BOLD = '\033[1m'
+    DIM = '\033[2m'
+    UNDERLINE = '\033[4m'
+    BLINK = '\033[5m'
+    END = '\033[0m'
+    CLEAR = '\033[2J\033[H'
+
+# ╔═══════════════════════════════════════════════════════════════════╗
+# ║                      UTILITY FUNCTIONS                            ║
+# ╚═══════════════════════════════════════════════════════════════════╝
+
+def typewriter_print(text, delay=0.03):
+    """Print text with typewriter effect"""
+    for char in text:
+        sys.stdout.write(char)
+        sys.stdout.flush()
+        time.sleep(delay)
+    print()
+
+def print_separator(char='═', length=70, color=Colors.CYAN):
+    """Print a separator line"""
+    print(f"{color}{char * length}{Colors.END}")
+
+def loading_animation(text="Initializing", duration=2):
+    """Show loading animation"""
+    chars = "⣾⣽⣻⢿⡿⣟⣯⣷"
+    end_time = time.time() + duration
+    i = 0
+    while time.time() < end_time:
+        sys.stdout.write(f'\r{Colors.CYAN}{chars[i % len(chars)]} {text}...{Colors.END}')
+        sys.stdout.flush()
+        time.sleep(0.1)
+        i += 1
+    sys.stdout.write('\r' + ' ' * 50 + '\r')
+    sys.stdout.flush()
+
+def print_status(status_type, message):
+    """Print formatted status message"""
+    icons = {
+        'success': f'{Colors.GREEN}[✓]{Colors.END}',
+        'error': f'{Colors.RED}[✗]{Colors.END}',
+        'warning': f'{Colors.YELLOW}[!]{Colors.END}',
+        'info': f'{Colors.CYAN}[i]{Colors.END}',
+        'scan': f'{Colors.MAGENTA}[►]{Colors.END}',
+        'found': f'{Colors.GREEN}[◆]{Colors.END}',
+        'critical': f'{Colors.RED}{Colors.BLINK}[!!!]{Colors.END}'
+    }
+    icon = icons.get(status_type, f'{Colors.WHITE}[•]{Colors.END}')
+    print(f"{icon} {message}")
+
+# ╔═══════════════════════════════════════════════════════════════════╗
+# ║                      API KEY MANAGEMENT                           ║
+# ╚═══════════════════════════════════════════════════════════════════╝
+
+def load_api_key():
+    """Load API key from file"""
+    key_file = 'shodan_api.key'
+
+    loading_animation("Loading API credentials", 1.5)
+
+    if not os.path.exists(key_file):
+        print_status('error', f"API key file not found: {Colors.YELLOW}{key_file}{Colors.END}")
+        print_status('info', f"Create file '{Colors.CYAN}{key_file}{Colors.END}' with your API key")
+        print_status('info', f"Get key from: {Colors.UNDERLINE}https://account.shodan.io/{Colors.END}")
+        sys.exit(1)
+
+    try:
+        with open(key_file, 'r') as f:
+            api_key = f.read().strip()
+
+        if not api_key:
+            print_status('error', "API key file is empty")
+            sys.exit(1)
+
+        print_status('success', f"API key loaded from {Colors.CYAN}{key_file}{Colors.END}")
+        print_status('info', f"Key length: {Colors.GREEN}{len(api_key)} characters{Colors.END}")
+        return api_key
+
+    except Exception as e:
+        print_status('error', f"Error reading API key: {Colors.RED}{e}{Colors.END}")
+        sys.exit(1)
+
+# ╔═══════════════════════════════════════════════════════════════════╗
+# ║                   COUNTRY SELECTION                               ║
+# ╚═══════════════════════════════════════════════════════════════════╝
+
+def load_countries():
+    """Load country list from JSON file"""
+    config_file = 'countries.json'
+
+    if not os.path.exists(config_file):
+        print_status('warning', f"Config file not found: {Colors.YELLOW}{config_file}{Colors.END}")
+        print_status('info', "Using default country list")
+        return {
+            "Morocco": "MA",
+            "United States": "US",
+            "China": "CN",
+            "Russia": "RU",
+            "Germany": "DE",
+            "United Kingdom": "GB",
+            "France": "FR",
+            "India": "IN",
+            "Brazil": "BR",
+            "Japan": "JP"
+        }
+
+    try:
+        with open(config_file, 'r') as f:
+            data = json.load(f)
+            print_status('success', f"Loaded {Colors.GREEN}{len(data.get('countries', {}))}{Colors.END} countries from config")
+            return data.get('countries', {})
+    except Exception as e:
+        print_status('error', f"Error loading config: {Colors.RED}{e}{Colors.END}")
+        sys.exit(1)
+
+def display_country_menu(countries):
+    """Display country selection menu"""
+    print(f"\n{Colors.BOLD}{Colors.CYAN}╔═══════════════════════════════════════════════════════════╗{Colors.END}")
+    print(f"{Colors.BOLD}{Colors.CYAN}║{Colors.END}            {Colors.WHITE}SELECT TARGET COUNTRY{Colors.END}              {Colors.BOLD}{Colors.CYAN}║{Colors.END}")
+    print(f"{Colors.BOLD}{Colors.CYAN}╚═══════════════════════════════════════════════════════════╝{Colors.END}\n")
+
+    print(f"{Colors.GREEN}[0]{Colors.END} {Colors.BOLD}GLOBAL{Colors.END} {Colors.DIM}(All countries - no filter){Colors.END}\n")
+
+    country_list = list(countries.items())
+    for idx, (country_name, country_code) in enumerate(country_list, 1):
+        print(f"{Colors.CYAN}[{idx}]{Colors.END} {country_name:20s} {Colors.DIM}({country_code}){Colors.END}")
+
+    print(f"\n{Colors.YELLOW}[C]{Colors.END} {Colors.DIM}Custom country code{Colors.END}")
+    print_separator('─', 60, Colors.DIM)
+
+    while True:
+        try:
+            choice = input(f"\n{Colors.BOLD}Select option: {Colors.END}").strip()
+
+            if choice.upper() == 'C':
+                custom_code = input(f"{Colors.CYAN}Enter 2-letter country code (e.g., MA, US): {Colors.END}").strip().upper()
+                if len(custom_code) == 2:
+                    return custom_code, f"Custom ({custom_code})"
+                else:
+                    print_status('error', "Invalid country code format")
+                    continue
+
+            choice_num = int(choice)
+
+            if choice_num == 0:
+                return None, "Global"
+            elif 1 <= choice_num <= len(country_list):
+                country_name, country_code = country_list[choice_num - 1]
+                return country_code, country_name
+            else:
+                print_status('error', f"Please enter a number between 0 and {len(country_list)}")
+        except ValueError:
+            print_status('error', "Invalid input. Please enter a number or 'C'")
+        except KeyboardInterrupt:
+            print(f"\n{Colors.YELLOW}[!] Selection cancelled{Colors.END}")
+            sys.exit(0)
+
+# ╔═══════════════════════════════════════════════════════════════════╗
+# ║                      MOIRAGUARD BANNER                            ║
+# ╚═══════════════════════════════════════════════════════════════════╝
+
+def print_banner():
+    """MOIRAGUARD Eye O Tea banner"""
+    
+    print(Colors.CLEAR)
+    
+    # Main banner with Eye O Tea
+    banner = f"""
+{Colors.CYAN}{Colors.BOLD}
+╔═══════════════════════════════════════════════════════════════════════╗
+║                                                                       ║
+║   ███╗   ███╗ ██████╗ ██╗██████╗  █████╗  ██████╗ ██╗   ██╗ █████╗ ██████╗ ██████╗   ║
+║   ████╗ ████║██╔═══██╗██║██╔══██╗██╔══██╗██╔════╝ ██║   ██║██╔══██╗██╔══██╗██╔══██╗  ║
+║   ██╔████╔██║██║   ██║██║██████╔╝███████║██║  ███╗██║   ██║███████║██████╔╝██║  ██║  ║
+║   ██║╚██╔╝██║██║   ██║██║██╔══██╗██╔══██║██║   ██║██║   ██║██╔══██║██╔══██╗██║  ██║  ║
+║   ██║ ╚═╝ ██║╚██████╔╝██║██║  ██║██║  ██║╚██████╔╝╚██████╔╝██║  ██║██║  ██║██████╔╝  ║
+║   ╚═╝     ╚═╝ ╚═════╝ ╚═╝╚═╝  ╚═╝╚═╝  ╚═╝ ╚═════╝  ╚═════╝ ╚═╝  ╚═╝╚═╝  ╚═╝╚═════╝   ║
+║                                                                       ║
+╚═══════════════════════════════════════════════════════════════════════╝
+{Colors.END}
+
+{Colors.GREEN}{Colors.BOLD}
+                     ▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
+                   ▄▀░░░░░░░░░░░░░░░▀▄
+                  █░░░▄▀▀▀▀▀▀▀▀▀▄░░░░█
+                 █░░░█░░░░░░░░░░█░░░░█
+                 █░░░█░░░░ 👁️  ░░█░░░░█    {Colors.CYAN}Eye{Colors.END}  {Colors.WHITE}O{Colors.END}  {Colors.GREEN}Tea{Colors.END}
+                 █░░░█░░░░░░░░░░█░░░░█         {Colors.DIM}(IoT){Colors.END}
+                  █░░░▀▄▄▄▄▄▄▄▄▄▀░░░░█
+                   ▀▄░░░░░░░░░░░░░░▄▀
+                     ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+{Colors.END}
+
+{Colors.CYAN}┌───────────────────────────────────────────────────────────────────────┐{Colors.END}
+{Colors.CYAN}│{Colors.END}  {Colors.WHITE}Global IoT/IIoT Infrastructure Reconnaissance Framework{Colors.END}          {Colors.CYAN}│{Colors.END}
+{Colors.CYAN}│{Colors.END}  {Colors.GREEN}Monitoring IoT Reconnaissance & Guard{Colors.END}                           {Colors.CYAN}│{Colors.END}
+{Colors.CYAN}└───────────────────────────────────────────────────────────────────────┘{Colors.END}
+
+{Colors.DIM}
+┌───────────────────────────────────────────────────────────────────────┐
+│  Author: {Colors.WHITE}Mohammed Amine Moulay (@MLY){Colors.DIM}                              │
+│  Event:  {Colors.CYAN}DEFCON GROUP CASANLANCA 2026{Colors.DIM}                                        │
+│  Focus:  {Colors.GREEN}IoT Security Research & Industrial Protocol Analysis{Colors.DIM}      │
+│  Build:  {Colors.YELLOW}v1.0-MOIRAGUARD{Colors.DIM} ({datetime.now().strftime('%Y.%m.%d')}){Colors.DIM}                                 │
+└───────────────────────────────────────────────────────────────────────┘
+{Colors.END}
+"""
+    print(banner)
+    
+    # Warning
+    print(f"\n{Colors.RED}{Colors.BOLD}⚠️  LEGAL WARNING ⚠️{Colors.END}")
+    print(f"{Colors.YELLOW}This tool is for SECURITY RESEARCH and EDUCATION only.{Colors.END}")
+    print(f"{Colors.DIM}• Unauthorized access to systems is ILLEGAL{Colors.END}")
+    print(f"{Colors.DIM}• This tool performs PASSIVE reconnaissance only{Colors.END}")
+    print(f"{Colors.DIM}• Use RESPONSIBLY and ETHICALLY{Colors.END}\n")
+    
+    time.sleep(1)
+    
+    print(f"{Colors.CYAN}[{datetime.now().strftime('%H:%M:%S')}]{Colors.END} {Colors.GREEN}System initialized{Colors.END}")
+    print(f"{Colors.CYAN}[{datetime.now().strftime('%H:%M:%S')}]{Colors.END} {Colors.GREEN}Reconnaissance mode: {Colors.YELLOW}PASSIVE{Colors.END}")
+    print(f"{Colors.CYAN}[{datetime.now().strftime('%H:%M:%S')}]{Colors.END} {Colors.GREEN}Target scope: {Colors.YELLOW}GLOBAL IoT/IIoT{Colors.END}")
+    
+    print_separator()
+    loading_animation("Preparing MOIRAGUARD scan modules", 2)
+    print()
+
+# ╔═══════════════════════════════════════════════════════════════════╗
+# ║                    SCAN DATA STORAGE                              ║
+# ╚═══════════════════════════════════════════════════════════════════╝
+
+class ScanData:
+    """Store detailed scan results"""
+    def __init__(self, country_code=None, country_name=None):
+        self.timestamp = datetime.now()
+        self.country_code = country_code
+        self.country_name = country_name if country_name else "Global"
+        self.categories = {}
+        self.detailed_results = []
+
+    def add_category(self, category_name, total_count):
+        """Add category statistics"""
+        self.categories[category_name] = {
+            'count': total_count,
+            'devices': []
+        }
+
+    def add_device(self, category_name, device_info):
+        """Add detailed device information"""
+        if category_name in self.categories:
+            self.categories[category_name]['devices'].append(device_info)
+
+    def to_dict(self):
+        """Convert to dictionary for export"""
+        return {
+            'scan_timestamp': self.timestamp.isoformat(),
+            'scan_date': self.timestamp.strftime('%Y-%m-%d'),
+            'scan_time': self.timestamp.strftime('%H:%M:%S'),
+            'target_country': self.country_name,
+            'country_code': self.country_code,
+            'total_devices': sum(cat['count'] for cat in self.categories.values()),
+            'categories': self.categories
+        }
+
+# ╔═══════════════════════════════════════════════════════════════════╗
+# ║                      SCAN FUNCTIONS                               ║
+# ╚═══════════════════════════════════════════════════════════════════╝
+
+def scan_header(scan_num, total, title, risk_level, risk_color):
+    """Print scan header"""
+    print_separator('─', 70, Colors.DIM)
+    print(f"\n{Colors.BOLD}{Colors.WHITE}[SCAN {scan_num}/{total}]{Colors.END} {Colors.CYAN}►{Colors.END} {Colors.BOLD}{risk_color}{title}{Colors.END}")
+    print(f"{Colors.YELLOW}Risk Level: {risk_color}{risk_level}{Colors.END}\n")
+
+def scan_smart_home_devices(api, country_code=None, scan_data=None, verbose=False):
+    """Scan for smart home appliances"""
+    scan_header(1, 6, "SMART HOME APPLIANCES & CONSUMER IoT", "HIGH ⚠️⚠️", Colors.ORANGE)
+
+    query = '"smart home" port:80,8080,443'
+    if country_code:
+        query += f' country:{country_code}'
+    print_status('scan', f"Query: {Colors.CYAN}{query}{Colors.END}")
+    loading_animation("Querying Shodan database", 1.5)
+
+    try:
+        results = api.search(query)
+        total = results['total']
+
+        print_status('found', f"Discovered {Colors.BOLD}{Colors.GREEN}{total:,}{Colors.END} exposed smart home devices globally")
+        print_status('warning', f"Risk: {Colors.RED}Unsecured management interfaces{Colors.END}")
+
+        # Store in scan_data if provided
+        if scan_data:
+            scan_data.add_category("Smart Home Devices", total)
+
+        # Count countries - INCREASED SAMPLE SIZE
+        countries = defaultdict(int)
+        for result in results['matches'][:100]:
+            country = result.get('location', {}).get('country_name', 'Unknown')
+            countries[country] += 1
+
+            # Store detailed info if verbose mode
+            if scan_data and verbose:
+                device_info = {
+                    'ip': result['ip_str'],
+                    'port': result.get('port', 'N/A'),
+                    'product': result.get('product', 'Smart Home Device'),
+                    'version': result.get('version', 'Unknown'),
+                    'country': country,
+                    'city': result.get('location', {}).get('city', 'Unknown'),
+                    'org': result.get('org', 'Unknown'),
+                    'isp': result.get('isp', 'Unknown'),
+                    'timestamp': result.get('timestamp', 'Unknown')
+                }
+                scan_data.add_device("Smart Home Devices", device_info)
+
+        # Show geographic distribution (keep existing display logic)
+        morocco_count = countries.get('Morocco', 0)
+        print(f"\n{Colors.BOLD}{Colors.CYAN}Geographic Distribution:{Colors.END}")
+
+        if morocco_count > 0:
+            print(f"  {Colors.YELLOW}►{Colors.END} {'Morocco (Local)':20s} {Colors.YELLOW}{'█' * min(morocco_count * 2, 40)}{Colors.END} {morocco_count}")
+            other_countries = {k: v for k, v in countries.items() if k != 'Morocco'}
+            for country, count in sorted(other_countries.items(), key=lambda x: x[1], reverse=True)[:4]:
+                bar = '█' * min(count * 2, 40)
+                print(f"  {Colors.GREEN}►{Colors.END} {country:20s} {Colors.YELLOW}{bar}{Colors.END} {count}")
+        else:
+            for country, count in sorted(countries.items(), key=lambda x: x[1], reverse=True)[:5]:
+                bar = '█' * min(count * 2, 40)
+                print(f"  {Colors.GREEN}►{Colors.END} {country:20s} {Colors.YELLOW}{bar}{Colors.END} {count}")
+
+        print(f"\n{Colors.BOLD}{Colors.MAGENTA}Sample Devices:{Colors.END}")
+        for i, result in enumerate(results['matches'][:3], 1):
+            ip = result['ip_str']
+            product = result.get('product', 'Smart Home Device')
+            country = result.get('location', {}).get('country_name', 'Unknown')
+            print(f"  {Colors.YELLOW}[{i}]{Colors.END} {Colors.WHITE}{ip:15s}{Colors.END} │ {product:25s} │ {Colors.CYAN}{country}{Colors.END}")
+
+        return total
+    except Exception as e:
+        print_status('error', f"Scan failed: {e}")
+        return 0
+
+def scan_iot_cameras(api, country_code=None, scan_data=None, verbose=False):
+    """Scan for IoT cameras"""
+    scan_header(2, 6, "IoT CAMERAS & SURVEILLANCE SYSTEMS (RTSP)", "CRITICAL ⚠️⚠️⚠️", Colors.RED)
+
+    query = 'port:554 "RTSP/1.0"'
+    if country_code:
+        query += f' country:{country_code}'
+    print_status('scan', f"Query: {Colors.CYAN}{query}{Colors.END}")
+    loading_animation("Scanning for RTSP streams", 1.5)
+
+    try:
+        results = api.search(query)
+        total = results['total']
+
+        print_status('critical', f"Found {Colors.BOLD}{Colors.RED}{total:,}{Colors.END} exposed camera streams")
+        print_status('warning', f"Risk: {Colors.RED}Unprotected video surveillance{Colors.END}")
+
+        if scan_data:
+            scan_data.add_category("IoT Cameras", total)
+
+        print(f"\n{Colors.BOLD}{Colors.MAGENTA}Live Stream Exposures:{Colors.END}")
+        for i, result in enumerate(results['matches'][:3], 1):
+            ip = result['ip_str']
+            org = result.get('org', 'Unknown')
+            country = result.get('location', {}).get('country_name', 'Unknown')
+            print(f"  {Colors.RED}[{i}]{Colors.END} {Colors.WHITE}rtsp://{ip}:554{Colors.END}")
+            print(f"      ├─ Organization: {Colors.CYAN}{org}{Colors.END}")
+            print(f"      └─ Location: {Colors.YELLOW}{country}{Colors.END}")
+
+            if scan_data and verbose:
+                device_info = {
+                    'ip': ip,
+                    'port': 554,
+                    'product': result.get('product', 'RTSP Camera'),
+                    'version': result.get('version', 'Unknown'),
+                    'country': country,
+                    'city': result.get('location', {}).get('city', 'Unknown'),
+                    'org': org,
+                    'isp': result.get('isp', 'Unknown'),
+                    'timestamp': result.get('timestamp', 'Unknown')
+                }
+                scan_data.add_device("IoT Cameras", device_info)
+
+        return total
+    except Exception as e:
+        print_status('error', f"Scan failed: {e}")
+        return 0
+
+def scan_scada_ics(api, country_code=None, scan_data=None, verbose=False):
+    """Scan for SCADA/ICS"""
+    scan_header(3, 6, "SCADA / INDUSTRIAL CONTROL SYSTEMS", "CRITICAL ⚠️⚠️⚠️", Colors.RED)
+
+    query = 'port:502 "Modbus"'
+    if country_code:
+        query += f' country:{country_code}'
+    print_status('scan', f"Query: {Colors.CYAN}{query}{Colors.END}")
+    loading_animation("Discovering critical infrastructure", 2)
+    
+    try:
+        results = api.search(query)
+        total = results['total']
+
+        print_status('critical', f"Discovered {Colors.BOLD}{Colors.RED}{total:,}{Colors.END} SCADA/ICS systems exposed")
+        print_status('warning', f"Impact: {Colors.RED}Critical infrastructure{Colors.END}")
+
+        if scan_data:
+            scan_data.add_category("SCADA/ICS", total)
+
+        print(f"\n{Colors.BOLD}{Colors.RED}Potential Sectors Affected:{Colors.END}")
+        sectors = [
+            ("Manufacturing & Production", "⚙️"),
+            ("Water Treatment Facilities", "💧"),
+            ("Power Generation/Distribution", "⚡"),
+            ("Building Automation Systems", "🏭"),
+        ]
+        for sector, icon in sectors:
+            print(f"  {Colors.YELLOW}{icon}{Colors.END}  {sector}")
+
+        print(f"\n{Colors.BOLD}{Colors.MAGENTA}Critical Infrastructure Exposures:{Colors.END}")
+        for i, result in enumerate(results['matches'][:3], 1):
+            ip = result['ip_str']
+            org = result.get('org', 'Unknown')
+            country = result.get('location', {}).get('country_name', 'Unknown')
+            print(f"  {Colors.RED}[CRITICAL-{i}]{Colors.END} {Colors.WHITE}{ip}:502{Colors.END}")
+            print(f"      ├─ Organization: {Colors.CYAN}{org}{Colors.END}")
+            print(f"      ├─ Country: {Colors.YELLOW}{country}{Colors.END}")
+            print(f"      └─ Protocol: {Colors.RED}Modbus (Industrial){Colors.END}")
+
+            if scan_data and verbose:
+                device_info = {
+                    'ip': ip,
+                    'port': 502,
+                    'product': result.get('product', 'Modbus SCADA'),
+                    'version': result.get('version', 'Unknown'),
+                    'country': country,
+                    'city': result.get('location', {}).get('city', 'Unknown'),
+                    'org': org,
+                    'isp': result.get('isp', 'Unknown'),
+                    'timestamp': result.get('timestamp', 'Unknown')
+                }
+                scan_data.add_device("SCADA/ICS", device_info)
+
+        return total
+    except Exception as e:
+        print_status('error', f"Scan failed: {e}")
+        return 0
+
+def scan_building_automation(api, country_code=None, scan_data=None, verbose=False):
+    """Scan for Building Management Systems"""
+    scan_header(4, 6, "BUILDING AUTOMATION SYSTEMS (BACnet)", "HIGH ⚠️⚠️", Colors.ORANGE)
+
+    query = 'port:47808 "BACnet"'
+    if country_code:
+        query += f' country:{country_code}'
+    print_status('scan', f"Query: {Colors.CYAN}{query}{Colors.END}")
+    loading_animation("Analyzing building automation protocols", 1.5)
+    
+    try:
+        results = api.search(query)
+        total = results['total']
+
+        print_status('found', f"Located {Colors.BOLD}{Colors.ORANGE}{total:,}{Colors.END} building automation systems")
+        print_status('warning', f"Controls: {Colors.RED}HVAC, lighting, security{Colors.END}")
+
+        if scan_data:
+            scan_data.add_category("Building Automation", total)
+
+        print(f"\n{Colors.BOLD}{Colors.MAGENTA}Building System Exposures:{Colors.END}")
+        for i, result in enumerate(results['matches'][:3], 1):
+            ip = result['ip_str']
+            org = result.get('org', 'Unknown')
+            country = result.get('location', {}).get('country_name', 'Unknown')
+            print(f"  {Colors.ORANGE}[{i}]{Colors.END} {Colors.WHITE}{ip}:47808{Colors.END}")
+            print(f"      ├─ Organization: {Colors.CYAN}{org}{Colors.END}")
+            print(f"      └─ Country: {Colors.YELLOW}{country}{Colors.END}")
+
+            if scan_data and verbose:
+                device_info = {
+                    'ip': ip,
+                    'port': 47808,
+                    'product': result.get('product', 'BACnet System'),
+                    'version': result.get('version', 'Unknown'),
+                    'country': country,
+                    'city': result.get('location', {}).get('city', 'Unknown'),
+                    'org': org,
+                    'isp': result.get('isp', 'Unknown'),
+                    'timestamp': result.get('timestamp', 'Unknown')
+                }
+                scan_data.add_device("Building Automation", device_info)
+
+        return total
+    except Exception as e:
+        print_status('error', f"Scan failed: {e}")
+        return 0
+
+def scan_iot_mqtt(api, country_code=None, scan_data=None, verbose=False):
+    """Scan for MQTT brokers"""
+    scan_header(5, 6, "IoT MQTT MESSAGING BROKERS", "HIGH ⚠️⚠️", Colors.ORANGE)
+
+    query = 'port:1883 "mosquitto"'
+    if country_code:
+        query += f' country:{country_code}'
+    print_status('scan', f"Query: {Colors.CYAN}{query}{Colors.END}")
+    loading_animation("Discovering IoT messaging infrastructure", 1.5)
+    
+    try:
+        results = api.search(query)
+        total = results['total']
+
+        print_status('found', f"Found {Colors.BOLD}{Colors.ORANGE}{total:,}{Colors.END} exposed MQTT brokers")
+        print_status('warning', f"Risk: {Colors.RED}IoT device communication interception{Colors.END}")
+
+        if scan_data:
+            scan_data.add_category("MQTT Brokers", total)
+
+        print(f"\n{Colors.BOLD}{Colors.MAGENTA}MQTT Broker Exposures:{Colors.END}")
+        for i, result in enumerate(results['matches'][:3], 1):
+            ip = result['ip_str']
+            version = result.get('product', 'MQTT Broker')
+            country = result.get('location', {}).get('country_name', 'Unknown')
+            print(f"  {Colors.ORANGE}[{i}]{Colors.END} {Colors.WHITE}{ip}:1883{Colors.END}")
+            print(f"      ├─ Version: {Colors.CYAN}{version}{Colors.END}")
+            print(f"      └─ Country: {Colors.YELLOW}{country}{Colors.END}")
+
+            if scan_data and verbose:
+                device_info = {
+                    'ip': ip,
+                    'port': 1883,
+                    'product': version,
+                    'version': result.get('version', 'Unknown'),
+                    'country': country,
+                    'city': result.get('location', {}).get('city', 'Unknown'),
+                    'org': result.get('org', 'Unknown'),
+                    'isp': result.get('isp', 'Unknown'),
+                    'timestamp': result.get('timestamp', 'Unknown')
+                }
+                scan_data.add_device("MQTT Brokers", device_info)
+
+        return total
+    except Exception as e:
+        print_status('error', f"Scan failed: {e}")
+        return 0
+
+def scan_industrial_iot(api, country_code=None, scan_data=None, verbose=False):
+    """Scan for Industrial IoT"""
+    scan_header(6, 6, "INDUSTRIAL IoT GATEWAYS & AUTOMATION", "CRITICAL ⚠️⚠️⚠️", Colors.RED)
+
+    query = '"Industrial IoT" OR "IIoT Gateway" OR "Siemens" OR "Allen Bradley"'
+    if country_code:
+        query += f' country:{country_code}'
+    print_status('scan', f"Query: {Colors.CYAN}{query}{Colors.END}")
+    loading_animation("Scanning industrial automation systems", 2)
+    
+    try:
+        results = api.search(query)
+        total = results['total']
+
+        print_status('critical', f"Identified {Colors.BOLD}{Colors.RED}{total:,}{Colors.END} Industrial IoT systems")
+        print_status('warning', f"Risk: {Colors.RED}Production line control{Colors.END}")
+
+        if scan_data:
+            scan_data.add_category("Industrial IoT", total)
+
+        # Vendor distribution
+        vendors = defaultdict(int)
+        for result in results['matches'][:20]:
+            product = result.get('product', '').lower()
+            if 'siemens' in product:
+                vendors['Siemens'] += 1
+            elif 'rockwell' in product or 'allen bradley' in product:
+                vendors['Rockwell/Allen Bradley'] += 1
+            elif 'schneider' in product:
+                vendors['Schneider Electric'] += 1
+            else:
+                vendors['Other'] += 1
+
+        print(f"\n{Colors.BOLD}{Colors.CYAN}Vendor Distribution:{Colors.END}")
+        for vendor, count in sorted(vendors.items(), key=lambda x: x[1], reverse=True):
+            if count > 0:
+                bar = '█' * min(count * 2, 20)
+                print(f"  {Colors.GREEN}►{Colors.END} {vendor:30s} {Colors.YELLOW}{bar}{Colors.END} {count}")
+
+        print(f"\n{Colors.BOLD}{Colors.MAGENTA}IIoT System Exposures:{Colors.END}")
+        for i, result in enumerate(results['matches'][:3], 1):
+            ip = result['ip_str']
+            product = result.get('product', 'Industrial System')
+            country = result.get('location', {}).get('country_name', 'Unknown')
+            print(f"  {Colors.RED}[IIoT-{i}]{Colors.END} {Colors.WHITE}{ip}{Colors.END}")
+            print(f"      ├─ System: {Colors.CYAN}{product}{Colors.END}")
+            print(f"      └─ Country: {Colors.YELLOW}{country}{Colors.END}")
+
+            if scan_data and verbose:
+                device_info = {
+                    'ip': ip,
+                    'port': result.get('port', 'N/A'),
+                    'product': product,
+                    'version': result.get('version', 'Unknown'),
+                    'country': country,
+                    'city': result.get('location', {}).get('city', 'Unknown'),
+                    'org': result.get('org', 'Unknown'),
+                    'isp': result.get('isp', 'Unknown'),
+                    'timestamp': result.get('timestamp', 'Unknown')
+                }
+                scan_data.add_device("Industrial IoT", device_info)
+
+        return total
+    except Exception as e:
+        print_status('error', f"Scan failed: {e}")
+        return 0
+
+# ╔═══════════════════════════════════════════════════════════════════╗
+# ║                    EXPORT & VISUALIZATION                         ║
+# ╚═══════════════════════════════════════════════════════════════════╝
+
+def create_output_directory():
+    """Create output directory for exports"""
+    output_dir = Path("Moiraguard-Eye-O-Tea-Exports")
+    output_dir.mkdir(exist_ok=True)
+    return output_dir
+
+def export_json(scan_data, verbose=False):
+    """Export scan results to JSON"""
+    try:
+        output_dir = create_output_directory()
+        timestamp = scan_data.timestamp.strftime('%Y%m%d_%H%M%S')
+        filename = f"moiraguard_scan_{timestamp}.json"
+        filepath = output_dir / filename
+
+        data = scan_data.to_dict()
+        if not verbose:
+            # Remove detailed device info for non-verbose exports
+            for category in data['categories'].values():
+                category['devices'] = []
+
+        with open(filepath, 'w') as f:
+            json.dump(data, f, indent=2)
+
+        print_status('success', f"JSON exported to: {Colors.CYAN}{filepath}{Colors.END}")
+        return filepath
+    except Exception as e:
+        print_status('error', f"JSON export failed: {Colors.RED}{e}{Colors.END}")
+        return None
+
+def export_csv(scan_data, verbose=False):
+    """Export scan results to CSV"""
+    try:
+        output_dir = create_output_directory()
+        timestamp = scan_data.timestamp.strftime('%Y%m%d_%H%M%S')
+        filename = f"moiraguard_scan_{timestamp}.csv"
+        filepath = output_dir / filename
+
+        with open(filepath, 'w', newline='') as f:
+            writer = csv.writer(f)
+
+            # Write metadata
+            writer.writerow(['MOIRAGUARD IoT Security Scan Report'])
+            writer.writerow(['Scan Date', scan_data.timestamp.strftime('%Y-%m-%d')])
+            writer.writerow(['Scan Time', scan_data.timestamp.strftime('%H:%M:%S')])
+            writer.writerow(['Target', scan_data.country_name])
+            writer.writerow(['Country Code', scan_data.country_code or 'Global'])
+            writer.writerow([])
+
+            # Write summary
+            writer.writerow(['Category Summary'])
+            writer.writerow(['Category', 'Device Count', 'Risk Level'])
+
+            risk_levels = {
+                'Smart Home Devices': 'HIGH',
+                'IoT Cameras': 'CRITICAL',
+                'SCADA/ICS': 'CRITICAL',
+                'Building Automation': 'HIGH',
+                'MQTT Brokers': 'HIGH',
+                'Industrial IoT': 'CRITICAL'
+            }
+
+            for category, data in scan_data.categories.items():
+                risk = risk_levels.get(category, 'MEDIUM')
+                writer.writerow([category, data['count'], risk])
+
+            writer.writerow([])
+            writer.writerow(['Total Devices', sum(cat['count'] for cat in scan_data.categories.values())])
+
+            # Write detailed devices if verbose
+            if verbose:
+                writer.writerow([])
+                writer.writerow(['Detailed Device Information'])
+                writer.writerow(['Category', 'IP Address', 'Port', 'Product', 'Version', 'Country', 'City', 'Organization', 'ISP', 'Timestamp'])
+
+                for category, data in scan_data.categories.items():
+                    for device in data['devices']:
+                        writer.writerow([
+                            category,
+                            device.get('ip', 'N/A'),
+                            device.get('port', 'N/A'),
+                            device.get('product', 'N/A'),
+                            device.get('version', 'N/A'),
+                            device.get('country', 'N/A'),
+                            device.get('city', 'N/A'),
+                            device.get('org', 'N/A'),
+                            device.get('isp', 'N/A'),
+                            device.get('timestamp', 'N/A')
+                        ])
+
+        print_status('success', f"CSV exported to: {Colors.CYAN}{filepath}{Colors.END}")
+        return filepath
+    except Exception as e:
+        print_status('error', f"CSV export failed: {Colors.RED}{e}{Colors.END}")
+        return None
+
+def export_png_charts(scan_data):
+    """Export charts as PNG images using matplotlib with logo and improved styling"""
+    try:
+        output_dir = create_output_directory()
+        timestamp = scan_data.timestamp.strftime('%Y%m%d_%H%M%S')
+
+        # Prepare data
+        categories = list(scan_data.categories.keys())
+        counts = [scan_data.categories[cat]['count'] for cat in categories]
+        total = sum(counts)
+
+        # Enhanced color scheme for risk levels
+        colors_map = {
+            'Smart Home Devices': '#FF8C00',  # Orange
+            'IoT Cameras': '#DC143C',         # Crimson
+            'SCADA/ICS': '#B22222',           # Fire Brick
+            'Building Automation': '#FF6347', # Tomato
+            'MQTT Brokers': '#FFA500',        # Orange
+            'Industrial IoT': '#8B0000'       # Dark Red
+        }
+        colors = [colors_map.get(cat, '#4682B4') for cat in categories]
+
+        # Modern clean style with better fonts
+        plt.style.use('seaborn-v0_8-whitegrid')
+        plt.rcParams.update({
+            'font.family': 'sans-serif',
+            'font.sans-serif': ['Arial', 'Helvetica', 'DejaVu Sans'],
+            'font.size': 11,
+            'axes.labelsize': 13,
+            'axes.titlesize': 16,
+            'xtick.labelsize': 11,
+            'ytick.labelsize': 11,
+            'legend.fontsize': 11,
+            'figure.titlesize': 18
+        })
+
+        # Load logo if available
+        logo_path = Path("MoiraGuard-Eye-O-Tea-logo.png")
+        logo_img = None
+        if logo_path.exists():
+            try:
+                logo_img = plt.imread(str(logo_path))
+            except Exception:
+                pass
+
+        # 1. PIE CHART - Device Distribution (Improved)
+        fig1, ax1 = plt.subplots(figsize=(14, 10), facecolor='white')
+
+        wedges, texts, autotexts = ax1.pie(
+            counts, labels=categories, colors=colors,
+            autopct='%1.1f%%', startangle=90,
+            textprops={'fontsize': 12, 'weight': 'bold'},
+            explode=[0.03] * len(categories),
+            shadow=True,
+            pctdistance=0.85
+        )
+
+        # Style percentage text
+        for autotext in autotexts:
+            autotext.set_color('white')
+            autotext.set_fontweight('bold')
+            autotext.set_fontsize(13)
+
+        # Enhanced title
+        title_text = f'MOIRAGUARD IoT Device Distribution\n{scan_data.country_name} | Total: {total:,} Devices\n{scan_data.timestamp.strftime("%Y-%m-%d %H:%M:%S")}'
+        ax1.set_title(title_text, fontsize=20, fontweight='bold', pad=35, color='#2c3e50')
+
+        # Add logo if available
+        if logo_img is not None:
+            imagebox = OffsetImage(logo_img, zoom=0.12)
+            ab = AnnotationBbox(imagebox, (1.35, 1.15), frameon=False,
+                               xycoords='axes fraction')
+            ax1.add_artist(ab)
+
+        # Professional footer
+        fig1.text(0.5, 0.02, '👁️ MOIRAGUARD Eye-O-Tea Scanner | DEFCON GROUP CASABLANCA 2026 | @MLY',
+                 ha='center', fontsize=11, style='italic', color='#7f8c8d')
+
+        plt.tight_layout(rect=[0, 0.03, 1, 0.97])
+        pie_file = output_dir / f"moiraguard_pie_chart_{timestamp}.png"
+        plt.savefig(pie_file, dpi=300, bbox_inches='tight', facecolor='white', edgecolor='none')
+        plt.close()
+        print_status('success', f"Pie chart exported: {Colors.CYAN}{pie_file.name}{Colors.END}")
+
+        # 2. BAR CHART - Category Comparison (Improved)
+        fig2, ax2 = plt.subplots(figsize=(16, 10), facecolor='white')
+
+        bars = ax2.bar(
+            range(len(categories)), counts,
+            color=colors,
+            edgecolor='#2c3e50',
+            linewidth=2,
+            alpha=0.85,
+            width=0.7
+        )
+
+        # Style axes
+        ax2.set_xlabel('IoT Device Category', fontsize=15, fontweight='bold', color='#2c3e50', labelpad=10)
+        ax2.set_ylabel('Number of Exposed Devices', fontsize=15, fontweight='bold', color='#2c3e50', labelpad=10)
+        ax2.set_xticks(range(len(categories)))
+        ax2.set_xticklabels(categories, rotation=30, ha='right', fontsize=12, weight='bold')
+        ax2.yaxis.set_major_formatter(plt.FuncFormatter(lambda x, p: f'{int(x):,}'))
+        ax2.grid(axis='y', alpha=0.25, linestyle='--', linewidth=0.8, color='#95a5a6')
+        ax2.set_axisbelow(True)
+        ax2.spines['top'].set_visible(False)
+        ax2.spines['right'].set_visible(False)
+
+        # Enhanced title
+        title_text = f'MOIRAGUARD IoT Exposure by Category\n{scan_data.country_name} | Total: {total:,} Devices | {scan_data.timestamp.strftime("%Y-%m-%d %H:%M")}'
+        ax2.set_title(title_text, fontsize=20, fontweight='bold', pad=35, color='#2c3e50')
+
+        # Add value labels on bars
+        for bar, count in zip(bars, counts):
+            height = bar.get_height()
+            ax2.text(
+                bar.get_x() + bar.get_width() / 2., height + (max(counts) * 0.015),
+                f'{count:,}',
+                ha='center', va='bottom',
+                fontsize=12, fontweight='bold',
+                color='#2c3e50'
+            )
+
+        # Add logo
+        if logo_img is not None:
+            imagebox = OffsetImage(logo_img, zoom=0.1)
+            ab = AnnotationBbox(imagebox, (1.08, 1.08), frameon=False,
+                               xycoords='axes fraction')
+            ax2.add_artist(ab)
+
+        # Footer
+        fig2.text(0.5, 0.02, '👁️ MOIRAGUARD Eye-O-Tea Scanner | DEFCON GROUP CASABLANCA 2026 | @MLY',
+                 ha='center', fontsize=11, style='italic', color='#7f8c8d')
+
+        plt.tight_layout(rect=[0, 0.03, 1, 0.97])
+        bar_file = output_dir / f"moiraguard_bar_chart_{timestamp}.png"
+        plt.savefig(bar_file, dpi=300, bbox_inches='tight', facecolor='white', edgecolor='none')
+        plt.close()
+        print_status('success', f"Bar chart exported: {Colors.CYAN}{bar_file.name}{Colors.END}")
+
+        # 3. RISK LEVEL DOUGHNUT CHART
+        risk_levels = {
+            'Smart Home Devices': 'HIGH',
+            'IoT Cameras': 'CRITICAL',
+            'SCADA/ICS': 'CRITICAL',
+            'Building Automation': 'HIGH',
+            'MQTT Brokers': 'HIGH',
+            'Industrial IoT': 'CRITICAL'
+        }
+
+        risk_data = {'CRITICAL': 0, 'HIGH': 0, 'MEDIUM': 0}
+        for cat, count in zip(categories, counts):
+            risk = risk_levels.get(cat, 'MEDIUM')
+            risk_data[risk] += count
+
+        # Filter out zero values
+        risk_labels = [k for k, v in risk_data.items() if v > 0]
+        risk_values = [v for v in risk_data.values() if v > 0]
+        risk_colors = {'CRITICAL': '#DC143C', 'HIGH': '#FF8C00', 'MEDIUM': '#FFD700'}
+        risk_chart_colors = [risk_colors[label] for label in risk_labels]
+
+        # 3. RISK LEVEL DOUGHNUT CHART (Improved)
+        fig3, ax3 = plt.subplots(figsize=(14, 10), facecolor='white')
+
+        wedges, texts, autotexts = ax3.pie(
+            risk_values, labels=risk_labels,
+            colors=risk_chart_colors,
+            autopct='%1.1f%%', startangle=90,
+            wedgeprops=dict(width=0.4, edgecolor='white', linewidth=4),
+            textprops={'fontsize': 14, 'weight': 'bold'},
+            explode=[0.05] * len(risk_labels),
+            shadow=True
+        )
+
+        # Style percentage text
+        for autotext in autotexts:
+            autotext.set_color('white')
+            autotext.set_fontweight('bold')
+            autotext.set_fontsize(15)
+
+        # Enhanced title
+        title_text = f'MOIRAGUARD Risk Level Distribution\n{scan_data.country_name} | Total: {total:,} Devices\n{scan_data.timestamp.strftime("%Y-%m-%d")}'
+        ax3.set_title(title_text, fontsize=20, fontweight='bold', pad=35, color='#2c3e50')
+
+        # Add center text in doughnut
+        centre_circle = plt.Circle((0, 0), 0.60, fc='white', linewidth=0)
+        ax3.add_artist(centre_circle)
+        ax3.text(0, 0.05, f'{total:,}', ha='center', va='center',
+                fontsize=24, weight='bold', color='#2c3e50')
+        ax3.text(0, -0.12, 'Devices', ha='center', va='center',
+                fontsize=16, weight='bold', color='#7f8c8d')
+
+        # Enhanced legend
+        legend_labels = [f'{label}: {value:,} devices ({value/total*100:.1f}%)'
+                        for label, value in zip(risk_labels, risk_values)]
+        legend = ax3.legend(legend_labels, loc='upper left', bbox_to_anchor=(1.02, 1),
+                           fontsize=13, frameon=True, shadow=True, fancybox=True)
+        legend.get_frame().set_facecolor('white')
+        legend.get_frame().set_alpha(0.95)
+        legend.get_frame().set_edgecolor('#95a5a6')
+
+        # Add logo
+        if logo_img is not None:
+            imagebox = OffsetImage(logo_img, zoom=0.1)
+            ab = AnnotationBbox(imagebox, (1.3, 1.15), frameon=False,
+                               xycoords='axes fraction')
+            ax3.add_artist(ab)
+
+        # Footer
+        fig3.text(0.5, 0.02, '👁️ MOIRAGUARD Eye-O-Tea Scanner | DEFCON GROUP CASABLANCA 2026 | @MLY',
+                 ha='center', fontsize=11, style='italic', color='#7f8c8d')
+
+        plt.tight_layout(rect=[0, 0.03, 1, 0.97])
+        risk_file = output_dir / f"moiraguard_risk_chart_{timestamp}.png"
+        plt.savefig(risk_file, dpi=300, bbox_inches='tight', facecolor='white', edgecolor='none')
+        plt.close()
+        print_status('success', f"Risk chart exported: {Colors.CYAN}{risk_file.name}{Colors.END}")
+
+        # 4. COMBINED SUMMARY CHART (Improved)
+        fig4 = plt.figure(figsize=(22, 13), facecolor='white')
+
+        # Add logo at top center if available
+        if logo_img is not None:
+            ax_logo = fig4.add_axes([0.42, 0.93, 0.16, 0.07])
+            ax_logo.imshow(logo_img)
+            ax_logo.axis('off')
+
+        # Device distribution pie chart
+        ax4_1 = plt.subplot(2, 2, 1)
+        wedges, texts, autotexts = ax4_1.pie(
+            counts, labels=categories, colors=colors,
+            autopct='%1.1f%%', startangle=90,
+            textprops={'fontsize': 11, 'weight': 'bold'},
+            explode=[0.02] * len(categories),
+            shadow=True
+        )
+        ax4_1.set_title('Device Distribution by Category', fontsize=15, fontweight='bold',
+                       pad=15, color='#2c3e50')
+        for autotext in autotexts:
+            autotext.set_color('white')
+            autotext.set_fontweight('bold')
+            autotext.set_fontsize(12)
+
+        # Risk level doughnut chart
+        ax4_2 = plt.subplot(2, 2, 2)
+        wedges, texts, autotexts = ax4_2.pie(
+            risk_values, labels=risk_labels,
+            colors=risk_chart_colors,
+            autopct='%1.1f%%', startangle=90,
+            textprops={'fontsize': 12, 'weight': 'bold'},
+            wedgeprops=dict(width=0.4, edgecolor='white', linewidth=2),
+            explode=[0.05] * len(risk_labels),
+            shadow=True
+        )
+        ax4_2.set_title('Risk Level Distribution', fontsize=15, fontweight='bold',
+                       pad=15, color='#2c3e50')
+        for autotext in autotexts:
+            autotext.set_color('white')
+            autotext.set_fontweight('bold')
+            autotext.set_fontsize(13)
+
+        # Center circle for doughnut
+        centre_circle = plt.Circle((0, 0), 0.40, fc='white', linewidth=0)
+        ax4_2.add_artist(centre_circle)
+        ax4_2.text(0, 0, f'{total:,}', ha='center', va='center',
+                  fontsize=18, weight='bold', color='#2c3e50')
+
+        # Horizontal bar chart at bottom
+        ax4_3 = plt.subplot(2, 1, 2)
+        bars = ax4_3.barh(categories, counts, color=colors,
+                         edgecolor='#2c3e50', linewidth=1.5, alpha=0.85)
+        ax4_3.set_xlabel('Number of Exposed Devices', fontsize=14, fontweight='bold',
+                        color='#2c3e50', labelpad=10)
+        ax4_3.set_title('Detailed Category Breakdown', fontsize=15, fontweight='bold',
+                       pad=15, color='#2c3e50')
+        ax4_3.xaxis.set_major_formatter(plt.FuncFormatter(lambda x, p: f'{int(x):,}'))
+        ax4_3.grid(axis='x', alpha=0.2, linestyle='--', color='#95a5a6')
+        ax4_3.set_axisbelow(True)
+        ax4_3.spines['top'].set_visible(False)
+        ax4_3.spines['right'].set_visible(False)
+
+        # Add value labels
+        for bar, count in zip(bars, counts):
+            width = bar.get_width()
+            ax4_3.text(width + (max(counts) * 0.01), bar.get_y() + bar.get_height()/2,
+                      f'{count:,}',
+                      ha='left', va='center', fontsize=11, fontweight='bold', color='#2c3e50')
+
+        # Main title
+        main_title = f'MOIRAGUARD IoT Security Scan Summary\n{scan_data.country_name} | Total: {total:,} Devices | {scan_data.timestamp.strftime("%Y-%m-%d %H:%M:%S")}'
+        fig4.suptitle(main_title, fontsize=22, fontweight='bold', y=0.985, color='#2c3e50')
+
+        # Footer with branding
+        fig4.text(0.5, 0.005,
+                 f'👁️ Generated by MOIRAGUARD Eye-O-Tea Scanner | DEFCON GROUP CASABLANCA 2026 | Author: @MLY\n'
+                 f'⚠️ For Security Research & Educational Purposes Only ⚠️',
+                 ha='center', fontsize=11, style='italic', color='#7f8c8d')
+
+        plt.tight_layout(rect=[0, 0.02, 1, 0.97])
+        summary_file = output_dir / f"moiraguard_summary_{timestamp}.png"
+        plt.savefig(summary_file, dpi=300, bbox_inches='tight', facecolor='white', edgecolor='none')
+        plt.close()
+        print_status('success', f"Summary chart exported: {Colors.CYAN}{summary_file.name}{Colors.END}")
+
+        print_status('success', f"All PNG charts exported to: {Colors.CYAN}{output_dir}{Colors.END}")
+        return [pie_file, bar_file, risk_file, summary_file]
+
+    except Exception as e:
+        print_status('error', f"PNG export failed: {Colors.RED}{e}{Colors.END}")
+        return None
+
+def export_html_with_charts(scan_data, verbose=False):
+    """Export scan results to HTML with embedded charts"""
+    try:
+        output_dir = create_output_directory()
+        timestamp = scan_data.timestamp.strftime('%Y%m%d_%H%M%S')
+        filename = f"moiraguard_scan_{timestamp}.html"
+        filepath = output_dir / filename
+
+        # Prepare data for charts
+        categories = list(scan_data.categories.keys())
+        counts = [scan_data.categories[cat]['count'] for cat in categories]
+        total = sum(counts)
+
+        # Color scheme for risk levels
+        colors_map = {
+            'Smart Home Devices': '#FF8C00',
+            'IoT Cameras': '#DC143C',
+            'SCADA/ICS': '#DC143C',
+            'Building Automation': '#FF8C00',
+            'MQTT Brokers': '#FF8C00',
+            'Industrial IoT': '#DC143C'
+        }
+        chart_colors = [colors_map.get(cat, '#4682B4') for cat in categories]
+
+        # Load and encode logo as base64
+        logo_base64 = ""
+        logo_path = Path("MoiraGuard-Eye-O-Tea-logo.png")
+        if logo_path.exists():
+            try:
+                with open(logo_path, 'rb') as logo_file:
+                    logo_base64 = base64.b64encode(logo_file.read()).decode('utf-8')
+            except Exception:
+                pass
+
+        # Generate HTML
+        html_content = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MOIRAGUARD Scan Report - {scan_data.timestamp.strftime('%Y-%m-%d')}</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        * {{ margin: 0; padding: 0; box-sizing: border-box; }}
+        body {{
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: #333;
+            padding: 20px;
+        }}
+        .container {{
+            max-width: 1400px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 15px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            overflow: hidden;
+        }}
+        .header {{
+            background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+            color: white;
+            padding: 40px;
+            text-align: center;
+        }}
+        .header h1 {{
+            font-size: 2.5em;
+            margin-bottom: 10px;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+        }}
+        .header .subtitle {{
+            font-size: 1.2em;
+            opacity: 0.9;
+        }}
+        .warning-banner {{
+            background: #ff4444;
+            color: white;
+            padding: 15px;
+            text-align: center;
+            font-weight: bold;
+        }}
+        .meta-info {{
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+            padding: 30px;
+            background: #f8f9fa;
+        }}
+        .meta-card {{
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            text-align: center;
+        }}
+        .meta-card .label {{
+            color: #666;
+            font-size: 0.9em;
+            margin-bottom: 5px;
+        }}
+        .meta-card .value {{
+            color: #2a5298;
+            font-size: 1.5em;
+            font-weight: bold;
+        }}
+        .charts-section {{
+            padding: 40px;
+        }}
+        .chart-container {{
+            margin-bottom: 40px;
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 15px rgba(0,0,0,0.1);
+        }}
+        .chart-title {{
+            font-size: 1.5em;
+            color: #2a5298;
+            margin-bottom: 20px;
+            text-align: center;
+        }}
+        .stats-grid {{
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 20px;
+            padding: 30px;
+        }}
+        .stat-card {{
+            background: white;
+            padding: 25px;
+            border-radius: 10px;
+            box-shadow: 0 2px 15px rgba(0,0,0,0.1);
+            border-left: 5px solid;
+        }}
+        .stat-card.critical {{ border-left-color: #DC143C; }}
+        .stat-card.high {{ border-left-color: #FF8C00; }}
+        .stat-card.medium {{ border-left-color: #FFD700; }}
+        .stat-card h3 {{
+            color: #333;
+            font-size: 1.1em;
+            margin-bottom: 10px;
+        }}
+        .stat-card .count {{
+            font-size: 2.5em;
+            font-weight: bold;
+            color: #2a5298;
+        }}
+        .stat-card .risk {{
+            margin-top: 10px;
+            padding: 5px 10px;
+            border-radius: 5px;
+            display: inline-block;
+            font-size: 0.9em;
+            font-weight: bold;
+        }}
+        .risk.critical {{ background: #DC143C; color: white; }}
+        .risk.high {{ background: #FF8C00; color: white; }}
+        .risk.medium {{ background: #FFD700; color: #333; }}
+        .devices-table {{
+            width: 100%;
+            margin: 30px;
+            overflow-x: auto;
+        }}
+        table {{
+            width: 100%;
+            border-collapse: collapse;
+            background: white;
+            box-shadow: 0 2px 15px rgba(0,0,0,0.1);
+        }}
+        th, td {{
+            padding: 15px;
+            text-align: left;
+            border-bottom: 1px solid #ddd;
+        }}
+        th {{
+            background: #2a5298;
+            color: white;
+            font-weight: bold;
+        }}
+        tr:hover {{
+            background: #f5f5f5;
+        }}
+        .footer {{
+            background: #2a5298;
+            color: white;
+            padding: 20px;
+            text-align: center;
+        }}
+        canvas {{
+            max-height: 400px;
+        }}
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            {f'<img src="data:image/png;base64,{logo_base64}" alt="MOIRAGUARD Logo" style="max-width: 300px; margin-bottom: 20px;">' if logo_base64 else ''}
+            <h1>👁️ MOIRAGUARD Eye-O-Tea Scanner</h1>
+            <div class="subtitle">IoT/IIoT Infrastructure Security Scan Report</div>
+        </div>
+
+        <div class="warning-banner">
+            ⚠️ CONFIDENTIAL SECURITY REPORT - For Authorized Personnel Only ⚠️
+        </div>
+
+        <div class="meta-info">
+            <div class="meta-card">
+                <div class="label">Scan Date</div>
+                <div class="value">{scan_data.timestamp.strftime('%Y-%m-%d')}</div>
+            </div>
+            <div class="meta-card">
+                <div class="label">Scan Time</div>
+                <div class="value">{scan_data.timestamp.strftime('%H:%M:%S')}</div>
+            </div>
+            <div class="meta-card">
+                <div class="label">Target Region</div>
+                <div class="value">{scan_data.country_name}</div>
+            </div>
+            <div class="meta-card">
+                <div class="label">Total Devices</div>
+                <div class="value">{total:,}</div>
+            </div>
+        </div>
+
+        <div class="stats-grid">
+"""
+
+        # Add individual category cards
+        risk_levels = {
+            'Smart Home Devices': ('HIGH', 'high'),
+            'IoT Cameras': ('CRITICAL', 'critical'),
+            'SCADA/ICS': ('CRITICAL', 'critical'),
+            'Building Automation': ('HIGH', 'high'),
+            'MQTT Brokers': ('HIGH', 'high'),
+            'Industrial IoT': ('CRITICAL', 'critical')
+        }
+
+        for category, data in scan_data.categories.items():
+            risk_text, risk_class = risk_levels.get(category, ('MEDIUM', 'medium'))
+            html_content += f"""
+            <div class="stat-card {risk_class}">
+                <h3>{category}</h3>
+                <div class="count">{data['count']:,}</div>
+                <span class="risk {risk_class}">{risk_text}</span>
+            </div>
+"""
+
+        html_content += """
+        </div>
+
+        <div class="charts-section">
+            <div class="chart-container">
+                <div class="chart-title">📊 Device Distribution by Category</div>
+                <canvas id="categoryChart"></canvas>
+            </div>
+
+            <div class="chart-container">
+                <div class="chart-title">📈 Exposure by Category (Bar Chart)</div>
+                <canvas id="barChart"></canvas>
+            </div>
+
+            <div class="chart-container">
+                <div class="chart-title">🎯 Risk Level Distribution</div>
+                <canvas id="riskChart"></canvas>
+            </div>
+        </div>
+"""
+
+        # Add detailed devices table if verbose
+        if verbose:
+            html_content += """
+        <div class="devices-table">
+            <h2 style="margin-bottom: 20px; color: #2a5298;">🔍 Detailed Device Information</h2>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Category</th>
+                        <th>IP Address</th>
+                        <th>Port</th>
+                        <th>Product</th>
+                        <th>Country</th>
+                        <th>City</th>
+                        <th>Organization</th>
+                    </tr>
+                </thead>
+                <tbody>
+"""
+            for category, data in scan_data.categories.items():
+                for device in data['devices'][:50]:  # Limit to first 50 per category
+                    html_content += f"""
+                    <tr>
+                        <td>{category}</td>
+                        <td><code>{device.get('ip', 'N/A')}</code></td>
+                        <td>{device.get('port', 'N/A')}</td>
+                        <td>{device.get('product', 'N/A')}</td>
+                        <td>{device.get('country', 'N/A')}</td>
+                        <td>{device.get('city', 'N/A')}</td>
+                        <td>{device.get('org', 'N/A')}</td>
+                    </tr>
+"""
+            html_content += """
+                </tbody>
+            </table>
+        </div>
+"""
+
+        html_content += f"""
+        <div class="footer">
+            <p>Generated by MOIRAGUARD Eye-O-Tea Scanner | DEFCON GROUP CASANLANCA 2026</p>
+            <p>Author: Mohammed Amine Moulay (@MLY)</p>
+            <p style="margin-top: 10px; font-size: 0.9em;">⚠️ For Security Research & Educational Purposes Only ⚠️</p>
+        </div>
+    </div>
+
+    <script>
+        // Category Pie Chart
+        const ctx1 = document.getElementById('categoryChart').getContext('2d');
+        new Chart(ctx1, {{
+            type: 'pie',
+            data: {{
+                labels: {json.dumps(categories)},
+                datasets: [{{
+                    data: {json.dumps(counts)},
+                    backgroundColor: {json.dumps(chart_colors)},
+                    borderWidth: 2,
+                    borderColor: '#fff'
+                }}]
+            }},
+            options: {{
+                responsive: true,
+                maintainAspectRatio: true,
+                plugins: {{
+                    legend: {{
+                        position: 'bottom',
+                        labels: {{
+                            padding: 15,
+                            font: {{
+                                size: 12
+                            }}
+                        }}
+                    }},
+                    tooltip: {{
+                        callbacks: {{
+                            label: function(context) {{
+                                let label = context.label || '';
+                                let value = context.parsed || 0;
+                                let total = context.dataset.data.reduce((a, b) => a + b, 0);
+                                let percentage = ((value / total) * 100).toFixed(1);
+                                return label + ': ' + value.toLocaleString() + ' (' + percentage + '%)';
+                            }}
+                        }}
+                    }}
+                }}
+            }}
+        }});
+
+        // Bar Chart
+        const ctx2 = document.getElementById('barChart').getContext('2d');
+        new Chart(ctx2, {{
+            type: 'bar',
+            data: {{
+                labels: {json.dumps(categories)},
+                datasets: [{{
+                    label: 'Exposed Devices',
+                    data: {json.dumps(counts)},
+                    backgroundColor: {json.dumps(chart_colors)},
+                    borderWidth: 0
+                }}]
+            }},
+            options: {{
+                responsive: true,
+                maintainAspectRatio: true,
+                plugins: {{
+                    legend: {{
+                        display: false
+                    }}
+                }},
+                scales: {{
+                    y: {{
+                        beginAtZero: true,
+                        ticks: {{
+                            callback: function(value) {{
+                                return value.toLocaleString();
+                            }}
+                        }}
+                    }}
+                }}
+            }}
+        }});
+
+        // Risk Level Doughnut Chart
+        const riskData = {{
+            'CRITICAL': 0,
+            'HIGH': 0,
+            'MEDIUM': 0
+        }};
+
+        const riskMap = {json.dumps(dict(zip(categories, [risk_levels.get(cat, ('MEDIUM', 'medium'))[0] for cat in categories])))};
+        const countMap = {json.dumps(dict(zip(categories, counts)))};
+
+        for (let cat in riskMap) {{
+            riskData[riskMap[cat]] += countMap[cat];
+        }}
+
+        const ctx3 = document.getElementById('riskChart').getContext('2d');
+        new Chart(ctx3, {{
+            type: 'doughnut',
+            data: {{
+                labels: Object.keys(riskData),
+                datasets: [{{
+                    data: Object.values(riskData),
+                    backgroundColor: ['#DC143C', '#FF8C00', '#FFD700'],
+                    borderWidth: 2,
+                    borderColor: '#fff'
+                }}]
+            }},
+            options: {{
+                responsive: true,
+                maintainAspectRatio: true,
+                plugins: {{
+                    legend: {{
+                        position: 'bottom',
+                        labels: {{
+                            padding: 15,
+                            font: {{
+                                size: 12
+                            }}
+                        }}
+                    }},
+                    tooltip: {{
+                        callbacks: {{
+                            label: function(context) {{
+                                let label = context.label || '';
+                                let value = context.parsed || 0;
+                                let total = context.dataset.data.reduce((a, b) => a + b, 0);
+                                let percentage = ((value / total) * 100).toFixed(1);
+                                return label + ': ' + value.toLocaleString() + ' (' + percentage + '%)';
+                            }}
+                        }}
+                    }}
+                }}
+            }}
+        }});
+    </script>
+</body>
+</html>
+"""
+
+        with open(filepath, 'w') as f:
+            f.write(html_content)
+
+        print_status('success', f"HTML report exported to: {Colors.CYAN}{filepath}{Colors.END}")
+        return filepath
+    except Exception as e:
+        print_status('error', f"HTML export failed: {Colors.RED}{e}{Colors.END}")
+        return None
+
+def post_scan_menu(scan_data):
+    """Display post-scan options menu"""
+    while True:
+        print(f"\n{Colors.BOLD}{Colors.CYAN}╔═══════════════════════════════════════════════════════════╗{Colors.END}")
+        print(f"{Colors.BOLD}{Colors.CYAN}║{Colors.END}            {Colors.WHITE}POST-SCAN OPTIONS{Colors.END}                    {Colors.BOLD}{Colors.CYAN}║{Colors.END}")
+        print(f"{Colors.BOLD}{Colors.CYAN}╚═══════════════════════════════════════════════════════════╝{Colors.END}\n")
+
+        print(f"{Colors.GREEN}[1]{Colors.END} Export to JSON {Colors.DIM}(Metrics Only){Colors.END}")
+        print(f"{Colors.GREEN}[2]{Colors.END} Export to JSON {Colors.DIM}(Verbose - with IP addresses){Colors.END}")
+        print(f"{Colors.GREEN}[3]{Colors.END} Export to CSV {Colors.DIM}(Metrics Only){Colors.END}")
+        print(f"{Colors.GREEN}[4]{Colors.END} Export to CSV {Colors.DIM}(Verbose - with device details){Colors.END}")
+        print(f"{Colors.GREEN}[5]{Colors.END} Export to HTML with Charts {Colors.DIM}(Metrics Only){Colors.END}")
+        print(f"{Colors.GREEN}[6]{Colors.END} Export to HTML with Charts {Colors.DIM}(Verbose - with device table){Colors.END}")
+        print(f"{Colors.GREEN}[7]{Colors.END} Export Charts as PNG {Colors.DIM}(4 chart images){Colors.END}")
+        print(f"{Colors.GREEN}[8]{Colors.END} Export ALL formats {Colors.DIM}(Metrics Only){Colors.END}")
+        print(f"{Colors.GREEN}[9]{Colors.END} Export ALL formats + PNG {Colors.DIM}(Verbose){Colors.END}")
+        print(f"{Colors.YELLOW}[0]{Colors.END} {Colors.DIM}Exit{Colors.END}")
+
+        print_separator('─', 60, Colors.DIM)
+
+        try:
+            choice = input(f"\n{Colors.BOLD}Select option: {Colors.END}").strip()
+
+            if choice == '0':
+                print_status('info', "Exiting MOIRAGUARD...")
+                break
+            elif choice == '1':
+                export_json(scan_data, verbose=False)
+            elif choice == '2':
+                export_json(scan_data, verbose=True)
+            elif choice == '3':
+                export_csv(scan_data, verbose=False)
+            elif choice == '4':
+                export_csv(scan_data, verbose=True)
+            elif choice == '5':
+                export_html_with_charts(scan_data, verbose=False)
+            elif choice == '6':
+                export_html_with_charts(scan_data, verbose=True)
+            elif choice == '7':
+                export_png_charts(scan_data)
+            elif choice == '8':
+                print_status('info', "Exporting all formats (metrics only)...")
+                export_json(scan_data, verbose=False)
+                export_csv(scan_data, verbose=False)
+                export_html_with_charts(scan_data, verbose=False)
+                print_status('success', "All formats exported successfully!")
+            elif choice == '9':
+                print_status('info', "Exporting all formats + PNG (verbose mode)...")
+                export_json(scan_data, verbose=True)
+                export_csv(scan_data, verbose=True)
+                export_html_with_charts(scan_data, verbose=True)
+                export_png_charts(scan_data)
+                print_status('success', "All formats exported successfully!")
+            else:
+                print_status('error', "Invalid option. Please try again.")
+
+        except KeyboardInterrupt:
+            print(f"\n{Colors.YELLOW}[!] Menu interrupted{Colors.END}")
+            break
+        except Exception as e:
+            print_status('error', f"Error: {Colors.RED}{e}{Colors.END}")
+
+# ╔═══════════════════════════════════════════════════════════════════╗
+# ║                    SUMMARY & REPORTING                            ║
+# ╚═══════════════════════════════════════════════════════════════════╝
+
+def print_summary(stats, api=None, target_country=None):
+    """Print MOIRAGUARD summary with target country context"""
+    total_devices = sum(stats.values())
+
+    print("\n")
+    print_separator('═', 70, Colors.CYAN)
+    print(f"{Colors.BOLD}{Colors.CYAN}╔{'═' * 68}╗{Colors.END}")
+    print(f"{Colors.BOLD}{Colors.CYAN}║{Colors.END}{Colors.BOLD}{Colors.WHITE}{'MOIRAGUARD RECONNAISSANCE COMPLETE'.center(68)}{Colors.END}{Colors.BOLD}{Colors.CYAN}║{Colors.END}")
+    print(f"{Colors.BOLD}{Colors.CYAN}╚{'═' * 68}╝{Colors.END}")
+    print_separator('═', 70, Colors.CYAN)
+
+    # Target scope
+    if target_country and target_country != "Global":
+        print(f"\n{Colors.BOLD}{Colors.CYAN}Target Scope:{Colors.END} {Colors.YELLOW}{target_country}{Colors.END}")
+    else:
+        print(f"\n{Colors.BOLD}{Colors.CYAN}Target Scope:{Colors.END} {Colors.YELLOW}Global (All Countries){Colors.END}")
+    
+    # Total count
+    print(f"\n{Colors.BOLD}{Colors.WHITE}Total Exposed Systems Discovered:{Colors.END}")
+    print(f"{Colors.BOLD}{Colors.RED}{Colors.UNDERLINE}{total_devices:,}{Colors.END} {Colors.WHITE}IoT/IIoT/SCADA systems globally accessible{Colors.END}\n")
+    
+    # Category breakdown
+    print(f"{Colors.BOLD}{Colors.CYAN}Exposure Breakdown by Category:{Colors.END}\n")
+    for category, count in stats.items():
+        percentage = (count / total_devices * 100) if total_devices > 0 else 0
+        bar_length = int(percentage / 2)
+        bar = '█' * bar_length
+        
+        if 'SCADA' in category or 'Industrial' in category:
+            color = Colors.RED
+            risk = "CRITICAL"
+        elif 'Camera' in category:
+            color = Colors.ORANGE
+            risk = "HIGH"
+        else:
+            color = Colors.YELLOW
+            risk = "MEDIUM-HIGH"
+        
+        print(f"  {color}■{Colors.END} {category:27s} {Colors.BOLD}{color}{count:9,}{Colors.END} systems  {Colors.DIM}{bar}{Colors.END} {percentage:5.1f}% [{color}{risk}{Colors.END}]")
+    
+    # Critical findings
+    print(f"\n{Colors.BOLD}{Colors.RED}═══ CRITICAL SECURITY FINDINGS ═══{Colors.END}\n")
+    
+    critical_findings = [
+        (f"{total_devices:,} IoT/IIoT systems", "PUBLICLY ACCESSIBLE from internet"),
+        (f"{stats.get('SCADA/ICS', 0):,} SCADA systems", "CRITICAL INFRASTRUCTURE exposed"),
+        (f"{stats.get('IoT Cameras', 0):,} camera streams", "PRIVACY VIOLATIONS"),
+        (f"{stats.get('MQTT Brokers', 0):,} MQTT brokers", "UNENCRYPTED messaging"),
+        (f"{stats.get('Building Automation', 0):,} building systems", "PHYSICAL SECURITY bypass"),
+    ]
+    
+    for count_text, risk_text in critical_findings:
+        print(f"  {Colors.RED}⚠️{Colors.END}  {Colors.BOLD}{Colors.WHITE}{count_text:30s}{Colors.END} │ {Colors.RED}{risk_text}{Colors.END}")
+    
+    # MOROCCO LOCAL CONTEXT (if API available)
+    if api is not None:
+        print(f"\n{Colors.BOLD}{Colors.MAGENTA}═══ LOCAL CONTEXT: MOROCCO ═══{Colors.END}\n")
+        
+        try:
+            loading_animation("Analyzing local exposure patterns", 1)
+            
+            morocco_stats = {}
+            
+            ma_iot = api.search('port:80,8080,443 country:MA')
+            morocco_stats['IoT Web Interfaces'] = ma_iot['total']
+            
+            ma_cameras = api.search('port:554 country:MA')
+            morocco_stats['Camera Streams'] = ma_cameras['total']
+            
+            ma_telnet = api.search('port:23 country:MA')
+            morocco_stats['Telnet Services'] = ma_telnet['total']
+            
+            ma_scada = api.search('port:502 country:MA')
+            morocco_stats['SCADA/ICS Systems'] = ma_scada['total']
+            
+            print_status('found', "Morocco-specific exposure identified")
+            
+            print(f"\n{Colors.BOLD}Moroccan Infrastructure Exposure:{Colors.END}\n")
+            for category, count in morocco_stats.items():
+                print(f"  {Colors.YELLOW}►{Colors.END} {category:25s} {Colors.RED}{count:6,}{Colors.END} systems")
+            
+            print(f"\n{Colors.BOLD}{Colors.CYAN}Context:{Colors.END}")
+            print(f"  • Morocco faces {Colors.YELLOW}same IoT security challenges{Colors.END} as global infrastructure")
+            print(f"  • Patterns: {Colors.RED}Default credentials, legacy protocols, no segmentation{Colors.END}")
+            print(f"  • Solutions: {Colors.GREEN}Same defensive measures apply universally{Colors.END}")
+            
+            print(f"\n{Colors.DIM}This data shown for local awareness and defensive preparation.{Colors.END}")
+            
+        except Exception as e:
+            print_status('info', "Local context analysis unavailable")
+    
+    # Footer
+    print(f"\n{Colors.BOLD}{Colors.CYAN}{'='*70}{Colors.END}")
+    print(f"{Colors.BOLD}{Colors.WHITE}👁️  MOIRAGUARD Eye-O-Tea Scanner{Colors.END} {Colors.DIM}|{Colors.END} {Colors.CYAN}DEFCON GROUP CASANLANCA 2026{Colors.END} {Colors.DIM}|{Colors.END} {Colors.GREEN}@MLY{Colors.END}")
+    print(f"{Colors.YELLOW}[!] Research Purpose:{Colors.END} Understanding global IoT/IIoT exposure patterns")
+    print(f"{Colors.YELLOW}[!] Ethical Note:{Colors.END} PASSIVE reconnaissance only")
+    print(f"{Colors.RED}[!] Legal Warning:{Colors.END} Unauthorized access is ILLEGAL")
+    print(f"{Colors.BOLD}{Colors.CYAN}{'='*70}{Colors.END}\n")
+
+# ╔═══════════════════════════════════════════════════════════════════╗
+# ║                         MAIN FUNCTION                             ║
+# ╚═══════════════════════════════════════════════════════════════════╝
+
+def main():
+    """Main execution"""
+
+    print_banner()
+
+    api_key = load_api_key()
+
+    # Load countries and display selection menu
+    countries = load_countries()
+    country_code, country_name = display_country_menu(countries)
+
+    if country_code:
+        print_status('info', f"Target set to: {Colors.YELLOW}{country_name}{Colors.END} ({Colors.CYAN}{country_code}{Colors.END})")
+    else:
+        print_status('info', f"Target set to: {Colors.YELLOW}Global{Colors.END} (no country filter)")
+
+    # Ask for verbosity level
+    print(f"\n{Colors.BOLD}{Colors.CYAN}Scan Verbosity:{Colors.END}")
+    print(f"  {Colors.GREEN}[1]{Colors.END} Metrics Only {Colors.DIM}(Fast - counts and totals only){Colors.END}")
+    print(f"  {Colors.GREEN}[2]{Colors.END} Verbose Mode {Colors.DIM}(Detailed - includes IPs and device info){Colors.END}")
+
+    while True:
+        try:
+            verbose_choice = input(f"\n{Colors.BOLD}Select mode [1/2]: {Colors.END}").strip()
+            if verbose_choice in ['1', '2']:
+                verbose = (verbose_choice == '2')
+                break
+            else:
+                print_status('error', "Please enter 1 or 2")
+        except KeyboardInterrupt:
+            print(f"\n{Colors.YELLOW}[!] Cancelled by user{Colors.END}")
+            sys.exit(0)
+
+    if verbose:
+        print_status('info', f"Verbose mode enabled - {Colors.YELLOW}will collect detailed device information{Colors.END}")
+    else:
+        print_status('info', f"Metrics mode - {Colors.GREEN}collecting counts only{Colors.END}")
+
+    try:
+        loading_animation("Connecting to Shodan API", 1.5)
+        api = shodan.Shodan(api_key)
+        print_status('success', "Shodan API connection established")
+
+        loading_animation("Verifying API credentials", 1)
+        info = api.info()
+        print_status('success', f"API verified - Query credits: {Colors.GREEN}{info.get('query_credits', 'N/A')}{Colors.END}")
+
+        print(f"\n{Colors.BOLD}{Colors.CYAN}[{datetime.now().strftime('%H:%M:%S')}]{Colors.END} {Colors.GREEN}Initiating MOIRAGUARD reconnaissance sweep...{Colors.END}\n")
+        time.sleep(1)
+
+        # Create scan data object
+        scan_data = ScanData(country_code, country_name)
+
+        # Run scans with country filter and data collection
+        stats = {}
+
+        stats['Smart Home Devices'] = scan_smart_home_devices(api, country_code, scan_data, verbose)
+        time.sleep(1)
+
+        stats['IoT Cameras'] = scan_iot_cameras(api, country_code, scan_data, verbose)
+        time.sleep(1)
+
+        stats['SCADA/ICS'] = scan_scada_ics(api, country_code, scan_data, verbose)
+        time.sleep(1)
+
+        stats['Building Automation'] = scan_building_automation(api, country_code, scan_data, verbose)
+        time.sleep(1)
+
+        stats['MQTT Brokers'] = scan_iot_mqtt(api, country_code, scan_data, verbose)
+        time.sleep(1)
+
+        stats['Industrial IoT'] = scan_industrial_iot(api, country_code, scan_data, verbose)
+        time.sleep(1)
+
+        # Print summary with target country context
+        print_summary(stats, api, country_name)
+
+        # Show post-scan menu
+        post_scan_menu(scan_data)
+        
+    except shodan.APIError as e:
+        print_status('error', f"Shodan API Error: {Colors.RED}{e}{Colors.END}")
+        sys.exit(1)
+    except KeyboardInterrupt:
+        print(f"\n\n{Colors.YELLOW}[!] Scan interrupted by user{Colors.END}")
+        print(f"{Colors.CYAN}[i] Exiting MOIRAGUARD...{Colors.END}\n")
+        sys.exit(0)
+    except Exception as e:
+        print_status('error', f"Unexpected error: {Colors.RED}{e}{Colors.END}")
+        sys.exit(1)
+
+if __name__ == "__main__":
+    main()

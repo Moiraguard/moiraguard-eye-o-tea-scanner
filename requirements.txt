@@ -1,0 +1,21 @@
+# MOIRAGUARD Eye-O-Tea IoT Scanner Dependencies
+# Python 3.7+
+
+# Core Shodan API
+shodan>=1.28.0
+
+# Chart Generation for PNG Export
+matplotlib>=3.5.0
+
+# Note: Other dependencies are from Python standard library:
+# - json (built-in)
+# - csv (built-in)
+# - datetime (built-in)
+# - collections (built-in)
+# - os (built-in)
+# - sys (built-in)
+# - time (built-in)
+# - pathlib (built-in, Python 3.4+)
+
+# Optional: For enhanced terminal colors on Windows
+colorama>=0.4.6; platform_system=="Windows"
