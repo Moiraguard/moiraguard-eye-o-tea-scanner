@@ -9,11 +9,6 @@
 
 </div>
 
-> **⚠️ IMPORTANT DISCLAIMER ⚠️**
-> **This tool is intended for SECURITY RESEARCH and EDUCATIONAL PURPOSES ONLY.**
-> **Unauthorized access to computer systems is ILLEGAL. Use this tool RESPONSIBLY and ETHICALLY.**
-> **The author and contributors are NOT responsible for any misuse or illegal activities.**
-
 <div align="center">
   <img src="examples/MoiraGuard-Eye-O-Tea-logo.png" alt="MOIRAGUARD Eye-O-Tea Logo" width="600">
 
