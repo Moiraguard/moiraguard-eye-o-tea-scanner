@@ -1,5 +1,10 @@
 # MOIRAGUARD - Eye O Tea (IoT) Scanner
 
+> **⚠️ IMPORTANT DISCLAIMER ⚠️**
+> **This tool is intended for SECURITY RESEARCH and EDUCATIONAL PURPOSES ONLY.**
+> **Unauthorized access to computer systems is ILLEGAL. Use this tool RESPONSIBLY and ETHICALLY.**
+> **The author and contributors are NOT responsible for any misuse or illegal activities.**
+
 <div align="center">
   <img src="MoiraGuard-Eye-O-Tea-logo.png" alt="MOIRAGUARD Eye-O-Tea Logo" width="600">
 
@@ -693,7 +698,7 @@ If you encounter issues not listed here:
 1. **Check Shodan Status**: https://status.shodan.io/
 2. **Verify API Key**: https://account.shodan.io/
 3. **Review Logs**: Look at the error message carefully
-4. **Report Issues**: https://github.com/anthropics/claude-code/issues
+4. **Report Issues**: https://github.com/Moiraguard/moiraguard-eye-o-tea-scanner/issues
 
 ### Performance Tips
 
@@ -784,31 +789,56 @@ High-quality image files perfect for:
 
 ## 📸 Example Results
 
-*Screenshots and sample outputs will be added here after running the tool*
+### HTML Report Export with Cyberpunk Neon Theme
 
-### Expected Output Formats
+Below is an example of the generated HTML report converted to PNG (Full Page Screenshot):
+
+<div align="center">
+  <img src="Moiraguard-Eye-O-Tea-Exports/moiraguard_report_20260216_185544.png" alt="MOIRAGUARD HTML Report Example" width="800">
+  <br>
+  <em>Example: MOIRAGUARD HTML Report - United States IoT Infrastructure Scan (283,882 devices)</em>
+</div>
+
+The report features:
+- **Cyberpunk Neon Emerald Theme**: Dark background with neon green accents and glowing effects
+- **Interactive Charts**: Device distribution pie chart, exposure bar chart, and risk level doughnut chart
+- **Real-time Metrics**: Scan date, time, target region, and total device count
+- **Category Breakdown**: Smart Home Devices, IoT Cameras, SCADA/ICS, Building Automation, MQTT Brokers
+- **Risk Level Indicators**: Visual classification (CRITICAL, HIGH, MEDIUM) with color coding
+- **Professional Design**: Glassmorphic cards, metallic gradients, and animated glow effects
+
+### Export Formats Available
 
 **Console Output:**
-- Real-time scan progress
-- Color-coded risk levels
+- Real-time scan progress with loading animations
+- Color-coded risk levels (CRITICAL/HIGH/MEDIUM)
 - Device discovery notifications
-- Geographic distribution charts
+- Category-wise statistics
+- Geographic information
 
 **JSON Export:**
 - Structured scan metadata
-- Category statistics
-- Optional device arrays
+- Timestamp and target information
+- Category statistics with device counts
+- Optional detailed device arrays (verbose mode)
 
 **CSV Export:**
-- Tabular data format
-- Category summaries
-- Device detail tables
+- Spreadsheet-compatible tabular format
+- Category summaries with counts
+- Device detail tables (verbose mode)
+- Organization and location data
 
 **HTML Report:**
-- Interactive pie charts
-- Bar graphs
-- Risk distribution
-- Professional styling
+- Interactive Chart.js visualizations
+- Responsive design with hover effects
+- Logo integration
+- Professional cyberpunk neon styling
+- Optional detailed device tables
+
+**PNG Exports:**
+- High-resolution chart images (300 DPI)
+- Full-page HTML screenshot (1400px width)
+- Perfect for presentations and reports
 
 ## 📚 Resources
 
@@ -856,7 +886,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND.
 ## 👤 Author
 
 **Mohammed Amine Moulay (@MLY)**
-IoT Security Researcher
+Security Engineer 
 DEFCON GROUP CASANLANCA 2026
 
 ## 🙏 Acknowledgments
