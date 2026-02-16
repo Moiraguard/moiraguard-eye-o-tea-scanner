@@ -5,7 +5,7 @@
 [![GitHub](https://img.shields.io/badge/GitHub-Moiraguard-181717?style=for-the-badge&logo=github)](https://github.com/Moiraguard/moiraguard-eye-o-tea-scanner)
 [![Python](https://img.shields.io/badge/Python-3.7%2B-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/)
 [![License](https://img.shields.io/badge/License-Research%20Only-red?style=for-the-badge)](https://github.com/Moiraguard/moiraguard-eye-o-tea-scanner)
-[![DEFCON](https://img.shields.io/badge/DEFCON-GROUP%20CASA-00FF88?style=for-the-badge)](https://github.com/Moiraguard)
+[![DEFCON](https://img.shields.io/badge/DEFCON-GROUP%20CASABLANCA-00FF88?style=for-the-badge)](https://www.linkedin.com/company/defcon-group-casablanca)
 
 </div>
 
@@ -23,17 +23,35 @@
 
 ## 📖 Overview
 
-**MOIRAGUARD** (Eye-O-Tea) is an advanced IoT/IIoT security reconnaissance framework designed for security research and educational purposes. Built for DEFCON GROUP CASANLANCA 2026, this tool performs passive reconnaissance on global IoT infrastructure using the Shodan API.
+**MOIRAGUARD** (Eye-O-Tea) is an advanced IoT/IIoT security reconnaissance framework designed for security research and educational purposes. Built for DEFCON GROUP CASABLANCA 2026, this tool performs passive reconnaissance on global IoT infrastructure using the Shodan API.
 
 ### Author
 **Mohammed Amine Moulay (@MLY)**
-DEFCON GROUP CASANLANCA 2026 | IoT Security Research
+DEFCON GROUP CASABLANCA 2026 | Security Research
 
 ### 🔗 Quick Links
 - **Repository**: https://github.com/Moiraguard/moiraguard-eye-o-tea-scanner
 - **Issues & Bug Reports**: https://github.com/Moiraguard/moiraguard-eye-o-tea-scanner/issues
 - **Pull Requests**: https://github.com/Moiraguard/moiraguard-eye-o-tea-scanner/pulls
 - **Releases**: https://github.com/Moiraguard/moiraguard-eye-o-tea-scanner/releases
+
+## 📸 Example Output
+
+<div align="center">
+  <img src="examples/moiraguard_report_20260216_185544.png" alt="MOIRAGUARD HTML Report Example" width="850">
+  <br><br>
+  <em>🎯 Example Report: United States IoT Infrastructure Scan - 283,882 Devices Discovered</em>
+  <br>
+  <sub>HTML Report with Cyberpunk Neon Theme | Interactive Charts | Risk Analysis | Country-Targeted Reconnaissance</sub>
+</div>
+
+**Report Highlights:**
+- 👁️ **Cyberpunk Neon Emerald Design** - Dark theme with glowing accents and glassmorphic UI
+- 📊 **Interactive Visualizations** - Pie charts, bar graphs, and risk level doughnuts
+- 🎯 **Multi-Category Analysis** - Smart Home (10) | Cameras (278K) | SCADA (1.2K) | Building (4K) | MQTT (9)
+- 🚨 **Risk Classification** - Real-time CRITICAL/HIGH/MEDIUM indicators
+- 🌍 **Country-Specific Targeting** - 50+ countries supported
+- 💾 **Multiple Export Formats** - JSON, CSV, HTML, PNG screenshots
 
 ## ⚠️ LEGAL DISCLAIMER
 
@@ -829,61 +847,6 @@ High-quality image files perfect for:
 - **Labeled** - All values and percentages shown
 - **Branded** - MOIRAGUARD footer on summary chart
 
-## 📸 Example Results
-
-### HTML Report Export with Cyberpunk Neon Theme
-
-Below is an example of the generated HTML report converted to PNG (Full Page Screenshot):
-
-<div align="center">
-  <img src="examples/moiraguard_report_20260216_185544.png" alt="MOIRAGUARD HTML Report Example" width="800">
-  <br>
-  <em>Example: MOIRAGUARD HTML Report - United States IoT Infrastructure Scan (283,882 devices)</em>
-  <br>
-  <sub>Sample report from the examples folder - Actual exports are saved to <code>Moiraguard-Eye-O-Tea-Exports/</code></sub>
-</div>
-
-The report features:
-- **Cyberpunk Neon Emerald Theme**: Dark background with neon green accents and glowing effects
-- **Interactive Charts**: Device distribution pie chart, exposure bar chart, and risk level doughnut chart
-- **Real-time Metrics**: Scan date, time, target region, and total device count
-- **Category Breakdown**: Smart Home Devices, IoT Cameras, SCADA/ICS, Building Automation, MQTT Brokers
-- **Risk Level Indicators**: Visual classification (CRITICAL, HIGH, MEDIUM) with color coding
-- **Professional Design**: Glassmorphic cards, metallic gradients, and animated glow effects
-
-### Export Formats Available
-
-**Console Output:**
-- Real-time scan progress with loading animations
-- Color-coded risk levels (CRITICAL/HIGH/MEDIUM)
-- Device discovery notifications
-- Category-wise statistics
-- Geographic information
-
-**JSON Export:**
-- Structured scan metadata
-- Timestamp and target information
-- Category statistics with device counts
-- Optional detailed device arrays (verbose mode)
-
-**CSV Export:**
-- Spreadsheet-compatible tabular format
-- Category summaries with counts
-- Device detail tables (verbose mode)
-- Organization and location data
-
-**HTML Report:**
-- Interactive Chart.js visualizations
-- Responsive design with hover effects
-- Logo integration
-- Professional cyberpunk neon styling
-- Optional detailed device tables
-
-**PNG Exports:**
-- High-resolution chart images (300 DPI)
-- Full-page HTML screenshot (1400px width)
-- Perfect for presentations and reports
-
 ## 📚 Resources
 
 ### Official Documentation
@@ -900,7 +863,7 @@ The report features:
 ### Learning Materials
 - **Shodan Cheat Sheet:** https://www.osintme.com/index.php/2021/01/16/ultimate-osint-with-shodan-100-great-shodan-queries/
 - **IoT Pentesting Guide:** Various online resources
-- **DEFCON GROUP CASANLANCA:** [Event Website - to be updated]
+- **DEFCON GROUP CASABLANCA:** https://www.linkedin.com/company/defcon-group-casablanca/
 
 ## 🤝 Contributing
 
@@ -957,12 +920,12 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND.
 
 **Mohammed Amine Moulay (@MLY)**
 Security Engineer 
-DEFCON GROUP CASANLANCA 2026
+DEFCON GROUP CASABLANCA 2026
 
 ## 🙏 Acknowledgments
 
 - **Shodan.io** for providing the comprehensive IoT search engine API
-- **DEFCON GROUP CASANLANCA** community for supporting security research
+- **DEFCON GROUP CASABLANCA** community for supporting security research
 - **Open source security research community** for continuous innovation
 - All contributors who help improve this tool
 
@@ -987,6 +950,6 @@ If you find this tool useful for your security research:
 
 **[⬆ Back to Top](#moiraguard---eye-o-tea-iot-scanner)**
 
-Made with 💚 by [Mohammed Amine Moulay](https://github.com/Moiraguard) | DEFCON GROUP CASANLANCA 2026
+Made with 💚 by [Mohammed Amine Moulay](https://github.com/Moiraguard) | DEFCON GROUP CASABLANCA 2026
 
 </div>
