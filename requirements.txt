@@ -7,6 +7,9 @@ shodan>=1.28.0
 # Chart Generation for PNG Export
 matplotlib>=3.5.0
 
+# HTML to PNG Screenshot Export
+html2image>=2.0.0
+
 # Note: Other dependencies are from Python standard library:
 # - json (built-in)
 # - csv (built-in)

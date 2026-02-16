@@ -41,6 +41,13 @@ import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
 from matplotlib.offsetbox import OffsetImage, AnnotationBbox
 
+# HTML to PNG conversion (optional - will check if available)
+try:
+    from html2image import Html2Image
+    HTML2IMAGE_AVAILABLE = True
+except ImportError:
+    HTML2IMAGE_AVAILABLE = False
+
 # ╔═══════════════════════════════════════════════════════════════════╗
 # ║                         COLOR SCHEMES                             ║
 # ╚═══════════════════════════════════════════════════════════════════╝
@@ -136,6 +143,89 @@ def load_api_key():
     except Exception as e:
         print_status('error', f"Error reading API key: {Colors.RED}{e}{Colors.END}")
         sys.exit(1)
+
+def check_requirements(api_key):
+    """Check all requirements before starting scan to avoid wasting credits"""
+    print_separator('═', 70, Colors.CYAN)
+    print(f"{Colors.BOLD}{Colors.CYAN}PRE-SCAN REQUIREMENTS CHECK{Colors.END}")
+    print_separator('─', 70, Colors.CYAN)
+
+    try:
+        # Test API connection
+        loading_animation("Testing Shodan API connection", 1.5)
+        api = shodan.Shodan(api_key)
+
+        # Get account information
+        loading_animation("Retrieving account information", 1)
+        info = api.info()
+
+        # Display API status
+        print(f"\n{Colors.GREEN}✓{Colors.END} {Colors.BOLD}API Connection:{Colors.END} {Colors.GREEN}Active{Colors.END}")
+
+        # Display account info
+        plan = info.get('plan', 'Unknown')
+        query_credits = info.get('query_credits', 0)
+        scan_credits = info.get('scan_credits', 0)
+
+        print(f"{Colors.GREEN}✓{Colors.END} {Colors.BOLD}Account Plan:{Colors.END} {Colors.CYAN}{plan}{Colors.END}")
+
+        # Display credits with color coding
+        if query_credits < 10:
+            credit_color = Colors.RED
+            warning_icon = "⚠️ "
+        elif query_credits < 50:
+            credit_color = Colors.YELLOW
+            warning_icon = "⚡"
+        else:
+            credit_color = Colors.GREEN
+            warning_icon = "✓"
+
+        print(f"{warning_icon} {Colors.BOLD}Query Credits:{Colors.END} {credit_color}{query_credits}{Colors.END}")
+        print(f"{Colors.GREEN}✓{Colors.END} {Colors.BOLD}Scan Credits:{Colors.END} {Colors.CYAN}{scan_credits}{Colors.END}")
+
+        # Show scan cost info
+        print(f"\n{Colors.BOLD}{Colors.CYAN}Scan Information:{Colors.END}")
+        print(f"  • This scan will use: {Colors.YELLOW}6 query credits{Colors.END}")
+        print(f"  • Credits after scan: {Colors.CYAN}{max(0, query_credits - 6)}{Colors.END}")
+
+        # Warning if low credits
+        if query_credits < 6:
+            print(f"\n{Colors.RED}⚠️  INSUFFICIENT CREDITS{Colors.END}")
+            print(f"{Colors.RED}You need at least 6 query credits to run this scan.{Colors.END}")
+            print(f"{Colors.YELLOW}Get more credits at: https://account.shodan.io/{Colors.END}")
+            return False
+        elif query_credits < 10:
+            print(f"\n{Colors.YELLOW}⚠️  WARNING: Low credits detected!{Colors.END}")
+            print(f"{Colors.YELLOW}You have {query_credits} credits remaining.{Colors.END}")
+            print(f"{Colors.DIM}Consider topping up at: https://account.shodan.io/{Colors.END}")
+
+        print_separator('─', 70, Colors.CYAN)
+
+        # Ask for confirmation
+        while True:
+            try:
+                confirm = input(f"\n{Colors.BOLD}Proceed with scan? [Y/n]: {Colors.END}").strip().lower()
+                if confirm in ['', 'y', 'yes']:
+                    print_status('success', "Requirements verified - proceeding with scan")
+                    return True
+                elif confirm in ['n', 'no']:
+                    print_status('info', "Scan cancelled by user")
+                    return False
+                else:
+                    print_status('error', "Please enter Y or N")
+            except KeyboardInterrupt:
+                print(f"\n{Colors.YELLOW}[!] Cancelled by user{Colors.END}")
+                return False
+
+    except shodan.APIError as e:
+        print(f"\n{Colors.RED}✗ API Connection Failed{Colors.END}")
+        print_status('error', f"Shodan API Error: {Colors.RED}{e}{Colors.END}")
+        print_status('info', "Please check your API key and internet connection")
+        return False
+    except Exception as e:
+        print(f"\n{Colors.RED}✗ Requirements Check Failed{Colors.END}")
+        print_status('error', f"Unexpected error: {Colors.RED}{e}{Colors.END}")
+        return False
 
 # ╔═══════════════════════════════════════════════════════════════════╗
 # ║                   COUNTRY SELECTION                               ║
@@ -1089,14 +1179,14 @@ def export_html_with_charts(scan_data, verbose=False):
         counts = [scan_data.categories[cat]['count'] for cat in categories]
         total = sum(counts)
 
-        # Color scheme for risk levels
+        # Enhanced color scheme - distinct colors for each category
         colors_map = {
-            'Smart Home Devices': '#FF8C00',
-            'IoT Cameras': '#DC143C',
-            'SCADA/ICS': '#DC143C',
-            'Building Automation': '#FF8C00',
-            'MQTT Brokers': '#FF8C00',
-            'Industrial IoT': '#DC143C'
+            'Smart Home Devices': '#00a8e8',    # Cyan Blue (IoT theme)
+            'IoT Cameras': '#DC143C',           # Crimson Red (Critical)
+            'SCADA/ICS': '#8B0000',             # Dark Red (Critical)
+            'Building Automation': '#9C27B0',   # Purple (Control Systems)
+            'MQTT Brokers': '#FF6F00',          # Deep Orange (Messaging)
+            'Industrial IoT': '#1B5E20'         # Dark Green (Industrial)
         }
         chart_colors = [colors_map.get(cat, '#4682B4') for cat in categories]
 
@@ -1119,120 +1209,347 @@ def export_html_with_charts(scan_data, verbose=False):
     <title>MOIRAGUARD Scan Report - {scan_data.timestamp.strftime('%Y-%m-%d')}</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
+        /* 👁️ MOIRAGUARD Eye O Tea - Cyber-Mystic Neon Theme */
         * {{ margin: 0; padding: 0; box-sizing: border-box; }}
+
         body {{
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: #333;
+            font-family: 'Rajdhani', 'Orbitron', 'Segoe UI', sans-serif;
+            background: #05070B;
+            color: #E6F0F5;
             padding: 20px;
+            position: relative;
+            overflow-x: hidden;
         }}
+
+        /* Animated circuit pattern background */
+        body::before {{
+            content: '';
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-image:
+                radial-gradient(circle at 20% 30%, rgba(0, 255, 136, 0.08) 0%, transparent 50%),
+                radial-gradient(circle at 80% 70%, rgba(0, 201, 107, 0.06) 0%, transparent 50%),
+                radial-gradient(circle at 50% 50%, rgba(0, 255, 170, 0.03) 0%, transparent 70%);
+            pointer-events: none;
+            z-index: 0;
+            animation: pulseGlow 8s ease-in-out infinite;
+        }}
+
+        @keyframes pulseGlow {{
+            0%, 100% {{ opacity: 0.5; }}
+            50% {{ opacity: 0.8; }}
+        }}
+
         .container {{
             max-width: 1400px;
             margin: 0 auto;
-            background: white;
-            border-radius: 15px;
-            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            background: rgba(11, 18, 32, 0.95);
+            border-radius: 20px;
+            box-shadow:
+                0 25px 70px rgba(0, 0, 0, 0.6),
+                0 0 40px rgba(0, 255, 136, 0.15),
+                inset 0 0 60px rgba(0, 255, 136, 0.02);
             overflow: hidden;
+            position: relative;
+            z-index: 1;
+            border: 1px solid rgba(0, 255, 136, 0.3);
+            backdrop-filter: blur(10px);
         }}
+
+        /* Neon header with eye effect gradient */
         .header {{
-            background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
-            color: white;
-            padding: 40px;
+            background: linear-gradient(135deg, #02140F 0%, #052E23 100%);
+            color: #E6F0F5;
+            padding: 50px 40px;
             text-align: center;
+            position: relative;
+            overflow: hidden;
+            border-bottom: 2px solid #00FF88;
         }}
+
+        .header::before {{
+            content: '';
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 100%;
+            height: 100%;
+            background: radial-gradient(circle at center, rgba(0, 255, 170, 0.15) 0%, rgba(0, 59, 46, 0.1) 40%, transparent 70%);
+            pointer-events: none;
+            animation: eyePulse 6s ease-in-out infinite;
+        }}
+
+        @keyframes eyePulse {{
+            0%, 100% {{ transform: translate(-50%, -50%) scale(1); opacity: 0.3; }}
+            50% {{ transform: translate(-50%, -50%) scale(1.2); opacity: 0.6; }}
+        }}
+
         .header h1 {{
-            font-size: 2.5em;
-            margin-bottom: 10px;
-            text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+            font-size: 2.8em;
+            margin-bottom: 15px;
+            background: linear-gradient(180deg, #FFFFFF 0%, #BFC9D4 50%, #7A8A99 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            text-shadow: 0 0 30px rgba(0, 255, 136, 0.5);
+            position: relative;
+            z-index: 1;
+            font-weight: 900;
+            letter-spacing: 2px;
         }}
+
         .header .subtitle {{
-            font-size: 1.2em;
-            opacity: 0.9;
+            font-size: 1.3em;
+            position: relative;
+            z-index: 1;
+            color: #00FF88;
+            text-shadow: 0 0 15px rgba(0, 255, 136, 0.8), 0 0 30px rgba(0, 201, 107, 0.4);
+            font-weight: 600;
+            letter-spacing: 1px;
         }}
+
+        /* Critical warning banner */
         .warning-banner {{
-            background: #ff4444;
+            background: linear-gradient(135deg, #DC143C 0%, #8B0000 100%);
             color: white;
-            padding: 15px;
+            padding: 18px;
             text-align: center;
             font-weight: bold;
+            font-size: 1.1em;
+            box-shadow: 0 0 20px rgba(220, 20, 60, 0.4);
+            border-top: 1px solid rgba(255, 255, 255, 0.1);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
         }}
+
+        /* Glassmorphic meta cards */
         .meta-info {{
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 20px;
-            padding: 30px;
-            background: #f8f9fa;
-        }}
-        .meta-card {{
-            background: white;
-            padding: 20px;
-            border-radius: 10px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-            text-align: center;
-        }}
-        .meta-card .label {{
-            color: #666;
-            font-size: 0.9em;
-            margin-bottom: 5px;
-        }}
-        .meta-card .value {{
-            color: #2a5298;
-            font-size: 1.5em;
-            font-weight: bold;
-        }}
-        .charts-section {{
+            gap: 25px;
             padding: 40px;
+            background: linear-gradient(135deg, rgba(11, 18, 32, 0.6) 0%, rgba(5, 46, 35, 0.4) 100%);
         }}
-        .chart-container {{
-            margin-bottom: 40px;
-            background: white;
-            padding: 30px;
-            border-radius: 10px;
-            box-shadow: 0 2px 15px rgba(0,0,0,0.1);
-        }}
-        .chart-title {{
-            font-size: 1.5em;
-            color: #2a5298;
-            margin-bottom: 20px;
+
+        .meta-card {{
+            background: rgba(0, 255, 136, 0.05);
+            padding: 25px;
+            border-radius: 15px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
             text-align: center;
+            border: 1px solid rgba(0, 255, 136, 0.3);
+            transition: all 0.3s ease;
+            backdrop-filter: blur(10px);
+            position: relative;
+            overflow: hidden;
         }}
+
+        .meta-card::before {{
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(0, 255, 136, 0.1), transparent);
+            transition: left 0.5s;
+        }}
+
+        .meta-card:hover {{
+            transform: translateY(-5px);
+            box-shadow: 0 0 30px rgba(0, 255, 136, 0.4);
+            border-color: #00FF88;
+        }}
+
+        .meta-card:hover::before {{
+            left: 100%;
+        }}
+
+        .meta-card .label {{
+            color: #A7B8C5;
+            font-size: 0.85em;
+            margin-bottom: 10px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+        }}
+
+        .meta-card .value {{
+            color: #00FF88;
+            font-size: 2em;
+            font-weight: bold;
+            text-shadow: 0 0 15px rgba(0, 255, 136, 0.6);
+            font-family: 'Orbitron', monospace;
+        }}
+        /* Neon chart sections */
+        .charts-section {{
+            padding: 50px 40px;
+            background: linear-gradient(135deg, rgba(5, 7, 11, 0.9) 0%, rgba(11, 18, 32, 0.9) 100%);
+        }}
+
+        .chart-container {{
+            margin-bottom: 50px;
+            background: rgba(0, 255, 136, 0.03);
+            padding: 35px;
+            border-radius: 15px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+            border: 1px solid rgba(0, 255, 136, 0.2);
+            transition: all 0.3s ease;
+            backdrop-filter: blur(10px);
+            position: relative;
+        }}
+
+        .chart-container::before {{
+            content: '';
+            position: absolute;
+            top: -2px;
+            left: -2px;
+            right: -2px;
+            bottom: -2px;
+            background: linear-gradient(135deg, #00FF88 0%, #00C96B 50%, #007A4D 100%);
+            border-radius: 15px;
+            opacity: 0;
+            z-index: -1;
+            transition: opacity 0.3s;
+        }}
+
+        .chart-container:hover {{
+            box-shadow: 0 0 40px rgba(0, 255, 136, 0.3);
+            transform: translateY(-3px);
+        }}
+
+        .chart-container:hover::before {{
+            opacity: 0.3;
+        }}
+
+        .chart-title {{
+            font-size: 1.7em;
+            color: #E6F0F5;
+            margin-bottom: 25px;
+            text-align: center;
+            font-weight: 700;
+            position: relative;
+            padding-bottom: 20px;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+        }}
+
+        .chart-title::after {{
+            content: '';
+            position: absolute;
+            bottom: 0;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 100px;
+            height: 3px;
+            background: linear-gradient(90deg, #00FF88 0%, #00C96B 50%, #007A4D 100%);
+            border-radius: 2px;
+            box-shadow: 0 0 10px rgba(0, 255, 136, 0.5);
+        }}
+
+        /* Neon stat cards */
         .stats-grid {{
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-            gap: 20px;
-            padding: 30px;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 25px;
+            padding: 40px;
+            background: linear-gradient(135deg, rgba(2, 20, 15, 0.6) 0%, rgba(5, 46, 35, 0.4) 100%);
         }}
+
         .stat-card {{
-            background: white;
-            padding: 25px;
-            border-radius: 10px;
-            box-shadow: 0 2px 15px rgba(0,0,0,0.1);
-            border-left: 5px solid;
+            background: rgba(0, 255, 136, 0.05);
+            padding: 30px;
+            border-radius: 15px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+            border-left: 4px solid;
+            transition: all 0.3s ease;
+            position: relative;
+            overflow: hidden;
+            backdrop-filter: blur(10px);
         }}
-        .stat-card.critical {{ border-left-color: #DC143C; }}
-        .stat-card.high {{ border-left-color: #FF8C00; }}
-        .stat-card.medium {{ border-left-color: #FFD700; }}
+
+        .stat-card::before {{
+            content: '';
+            position: absolute;
+            top: -50%;
+            right: -50%;
+            width: 200px;
+            height: 200px;
+            background: radial-gradient(circle, rgba(0, 255, 136, 0.1) 0%, transparent 70%);
+            border-radius: 50%;
+            animation: rotatePulse 10s linear infinite;
+        }}
+
+        @keyframes rotatePulse {{
+            0% {{ transform: rotate(0deg) scale(1); }}
+            50% {{ transform: rotate(180deg) scale(1.2); }}
+            100% {{ transform: rotate(360deg) scale(1); }}
+        }}
+
+        .stat-card:hover {{
+            transform: translateY(-5px);
+            box-shadow: 0 0 30px rgba(0, 255, 136, 0.3);
+        }}
+
+        .stat-card.critical {{
+            border-left-color: #DC143C;
+            box-shadow: 0 8px 32px rgba(220, 20, 60, 0.2);
+        }}
+        .stat-card.high {{
+            border-left-color: #FF6F00;
+            box-shadow: 0 8px 32px rgba(255, 111, 0, 0.2);
+        }}
+        .stat-card.medium {{
+            border-left-color: #FFD700;
+            box-shadow: 0 8px 32px rgba(255, 215, 0, 0.2);
+        }}
+
         .stat-card h3 {{
-            color: #333;
-            font-size: 1.1em;
-            margin-bottom: 10px;
+            color: #E6F0F5;
+            font-size: 1.15em;
+            margin-bottom: 15px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 1px;
         }}
+
         .stat-card .count {{
-            font-size: 2.5em;
+            font-size: 3em;
             font-weight: bold;
-            color: #2a5298;
+            color: #00FF88;
+            text-shadow: 0 0 20px rgba(0, 255, 136, 0.6);
+            font-family: 'Orbitron', monospace;
         }}
+
         .stat-card .risk {{
-            margin-top: 10px;
-            padding: 5px 10px;
-            border-radius: 5px;
+            margin-top: 12px;
+            padding: 8px 16px;
+            border-radius: 20px;
             display: inline-block;
             font-size: 0.9em;
             font-weight: bold;
+            text-transform: uppercase;
+            letter-spacing: 1px;
         }}
-        .risk.critical {{ background: #DC143C; color: white; }}
-        .risk.high {{ background: #FF8C00; color: white; }}
-        .risk.medium {{ background: #FFD700; color: #333; }}
+
+        .risk.critical {{
+            background: linear-gradient(135deg, #DC143C 0%, #8B0000 100%);
+            color: white;
+            box-shadow: 0 0 15px rgba(220, 20, 60, 0.5);
+        }}
+        .risk.high {{
+            background: linear-gradient(135deg, #FF6F00 0%, #CC5500 100%);
+            color: white;
+            box-shadow: 0 0 15px rgba(255, 111, 0, 0.5);
+        }}
+        .risk.medium {{
+            background: linear-gradient(135deg, #FFD700 0%, #FFA500 100%);
+            color: #000;
+            box-shadow: 0 0 15px rgba(255, 215, 0, 0.5);
+        }}
         .devices-table {{
             width: 100%;
             margin: 30px;
@@ -1257,14 +1574,102 @@ def export_html_with_charts(scan_data, verbose=False):
         tr:hover {{
             background: #f5f5f5;
         }}
+        /* Neon footer */
         .footer {{
-            background: #2a5298;
-            color: white;
-            padding: 20px;
+            background: linear-gradient(135deg, #02140F 0%, #052E23 100%);
+            color: #E6F0F5;
+            padding: 35px 20px;
             text-align: center;
+            position: relative;
+            overflow: hidden;
+            border-top: 2px solid #00FF88;
         }}
+
+        .footer::before {{
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background:
+                radial-gradient(circle at 30% 50%, rgba(0, 255, 136, 0.1) 0%, transparent 60%),
+                radial-gradient(circle at 70% 50%, rgba(0, 201, 107, 0.08) 0%, transparent 60%);
+            pointer-events: none;
+        }}
+
+        .footer p {{
+            position: relative;
+            z-index: 1;
+            margin: 10px 0;
+            text-shadow: 0 0 10px rgba(0, 255, 136, 0.3);
+            letter-spacing: 1px;
+        }}
+
         canvas {{
-            max-height: 400px;
+            max-height: 450px;
+        }}
+
+        /* Neon table styling */
+        .devices-table {{
+            margin: 40px;
+        }}
+
+        table {{
+            width: 100%;
+            border-collapse: collapse;
+            background: rgba(11, 18, 32, 0.8);
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+            border-radius: 12px;
+            overflow: hidden;
+            border: 1px solid rgba(0, 255, 136, 0.2);
+        }}
+
+        th {{
+            background: linear-gradient(135deg, #02140F 0%, #00FF88 100%);
+            color: #05070B;
+            padding: 18px 15px;
+            text-align: left;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 1.5px;
+            font-size: 0.9em;
+            text-shadow: 0 0 10px rgba(0, 255, 136, 0.5);
+        }}
+
+        td {{
+            padding: 15px;
+            border-bottom: 1px solid rgba(0, 255, 136, 0.1);
+            color: #A7B8C5;
+            font-family: 'Courier New', monospace;
+        }}
+
+        tr:hover {{
+            background: rgba(0, 255, 136, 0.08);
+        }}
+
+        tr:hover td {{
+            color: #00FF88;
+            text-shadow: 0 0 5px rgba(0, 255, 136, 0.3);
+        }}
+
+        /* Scrollbar styling */
+        ::-webkit-scrollbar {{
+            width: 12px;
+            height: 12px;
+        }}
+
+        ::-webkit-scrollbar-track {{
+            background: #0B1220;
+        }}
+
+        ::-webkit-scrollbar-thumb {{
+            background: linear-gradient(135deg, #00FF88 0%, #00C96B 100%);
+            border-radius: 6px;
+        }}
+
+        ::-webkit-scrollbar-thumb:hover {{
+            background: linear-gradient(135deg, #00FFAA 0%, #00FF88 100%);
         }}
     </style>
 </head>
@@ -1391,6 +1796,7 @@ def export_html_with_charts(scan_data, verbose=False):
 
     <script>
         // Category Pie Chart
+        // Category Pie Chart with Enhanced Colors
         const ctx1 = document.getElementById('categoryChart').getContext('2d');
         new Chart(ctx1, {{
             type: 'pie',
@@ -1399,8 +1805,11 @@ def export_html_with_charts(scan_data, verbose=False):
                 datasets: [{{
                     data: {json.dumps(counts)},
                     backgroundColor: {json.dumps(chart_colors)},
-                    borderWidth: 2,
-                    borderColor: '#fff'
+                    borderWidth: 3,
+                    borderColor: '#fff',
+                    hoverBorderWidth: 4,
+                    hoverBorderColor: '#00f2fe',
+                    hoverOffset: 15
                 }}]
             }},
             options: {{
@@ -1410,13 +1819,33 @@ def export_html_with_charts(scan_data, verbose=False):
                     legend: {{
                         position: 'bottom',
                         labels: {{
-                            padding: 15,
+                            padding: 20,
                             font: {{
-                                size: 12
-                            }}
+                                size: 13,
+                                weight: 'bold',
+                                family: "'Segoe UI', Tahoma, Geneva, Verdana, sans-serif"
+                            }},
+                            color: '#0a192f',
+                            usePointStyle: true,
+                            pointStyle: 'circle',
+                            boxWidth: 15,
+                            boxHeight: 15
                         }}
                     }},
                     tooltip: {{
+                        backgroundColor: 'rgba(10, 25, 47, 0.95)',
+                        titleColor: '#00f2fe',
+                        bodyColor: '#fff',
+                        borderColor: '#00a8e8',
+                        borderWidth: 2,
+                        padding: 12,
+                        titleFont: {{
+                            size: 14,
+                            weight: 'bold'
+                        }},
+                        bodyFont: {{
+                            size: 13
+                        }},
                         callbacks: {{
                             label: function(context) {{
                                 let label = context.label || '';
@@ -1427,11 +1856,17 @@ def export_html_with_charts(scan_data, verbose=False):
                             }}
                         }}
                     }}
+                }},
+                animation: {{
+                    animateRotate: true,
+                    animateScale: true,
+                    duration: 1500
                 }}
             }}
         }});
 
         // Bar Chart
+        // Bar Chart with Enhanced Styling
         const ctx2 = document.getElementById('barChart').getContext('2d');
         new Chart(ctx2, {{
             type: 'bar',
@@ -1441,7 +1876,12 @@ def export_html_with_charts(scan_data, verbose=False):
                     label: 'Exposed Devices',
                     data: {json.dumps(counts)},
                     backgroundColor: {json.dumps(chart_colors)},
-                    borderWidth: 0
+                    borderWidth: 2,
+                    borderColor: {json.dumps(chart_colors)},
+                    borderRadius: 8,
+                    hoverBackgroundColor: {json.dumps([c + 'dd' for c in chart_colors])},
+                    hoverBorderColor: '#00f2fe',
+                    hoverBorderWidth: 3
                 }}]
             }},
             options: {{
@@ -1450,17 +1890,57 @@ def export_html_with_charts(scan_data, verbose=False):
                 plugins: {{
                     legend: {{
                         display: false
+                    }},
+                    tooltip: {{
+                        backgroundColor: 'rgba(10, 25, 47, 0.95)',
+                        titleColor: '#00f2fe',
+                        bodyColor: '#fff',
+                        borderColor: '#00a8e8',
+                        borderWidth: 2,
+                        padding: 12,
+                        titleFont: {{
+                            size: 14,
+                            weight: 'bold'
+                        }},
+                        bodyFont: {{
+                            size: 13
+                        }}
                     }}
                 }},
                 scales: {{
                     y: {{
                         beginAtZero: true,
+                        grid: {{
+                            color: 'rgba(0, 168, 232, 0.1)',
+                            lineWidth: 1
+                        }},
                         ticks: {{
+                            color: '#0a192f',
+                            font: {{
+                                size: 12,
+                                weight: 'bold'
+                            }},
                             callback: function(value) {{
                                 return value.toLocaleString();
                             }}
                         }}
+                    }},
+                    x: {{
+                        grid: {{
+                            display: false
+                        }},
+                        ticks: {{
+                            color: '#0a192f',
+                            font: {{
+                                size: 12,
+                                weight: 'bold'
+                            }}
+                        }}
                     }}
+                }},
+                animation: {{
+                    duration: 1500,
+                    easing: 'easeOutQuart'
                 }}
             }}
         }});
@@ -1532,6 +2012,79 @@ def export_html_with_charts(scan_data, verbose=False):
         print_status('error', f"HTML export failed: {Colors.RED}{e}{Colors.END}")
         return None
 
+def export_html_as_png(scan_data, verbose=False):
+    """Export HTML report as a long PNG screenshot"""
+    try:
+        if not HTML2IMAGE_AVAILABLE:
+            print_status('error', "html2image library not installed")
+            print_status('info', f"Install with: {Colors.CYAN}pip3 install html2image{Colors.END}")
+            return None
+
+        output_dir = create_output_directory()
+        timestamp = scan_data.timestamp.strftime('%Y%m%d_%H%M%S')
+
+        # First generate the HTML file
+        print_status('info', "Generating HTML report...")
+        html_file = export_html_with_charts(scan_data, verbose)
+
+        if not html_file:
+            print_status('error', "Failed to generate HTML")
+            return None
+
+        # Convert HTML to PNG
+        print_status('info', "Converting HTML to PNG (this may take a moment)...")
+        loading_animation("Rendering HTML as image", 2)
+
+        # Generate PNG filename
+        png_filename = f"moiraguard_report_{timestamp}.png"
+
+        # Initialize Html2Image with fixed viewport size
+        # The library will capture the full scrollable content
+        try:
+            hti = Html2Image(output_path=str(output_dir))
+
+            # Read HTML content for inline rendering
+            with open(html_file, 'r', encoding='utf-8') as f:
+                html_content = f.read()
+
+            # Screenshot with html_str and explicit size
+            hti.screenshot(
+                html_str=html_content,
+                save_as=png_filename,
+                size=(1400, 8000)  # Wide viewport to capture full page
+            )
+        except TypeError:
+            # Fallback: try with file path if html_str fails
+            hti = Html2Image(output_path=str(output_dir))
+            hti.screenshot(
+                html_file=str(html_file),
+                save_as=png_filename,
+                size=(1400, 8000)
+            )
+
+        png_file = output_dir / png_filename
+
+        if png_file.exists():
+            # Get file size for display
+            file_size = png_file.stat().st_size / (1024 * 1024)  # MB
+            print_status('success', f"HTML screenshot exported: {Colors.CYAN}{png_filename}{Colors.END}")
+            print_status('info', f"File size: {Colors.GREEN}{file_size:.2f} MB{Colors.END}")
+            return png_file
+        else:
+            print_status('error', "PNG file was not created")
+            return None
+
+    except Exception as e:
+        print_status('error', f"HTML to PNG export failed: {Colors.RED}{e}{Colors.END}")
+        print_status('info', "Make sure Chrome/Chromium is installed on your system")
+        print_status('info', f"Install Chrome/Chromium with:")
+        print(f"  {Colors.CYAN}• Ubuntu/Debian:{Colors.END} sudo apt install chromium-browser")
+        print(f"  {Colors.CYAN}• Fedora/RHEL:{Colors.END} sudo dnf install chromium")
+        print(f"  {Colors.CYAN}• Arch:{Colors.END} sudo pacman -S chromium")
+        print(f"  {Colors.CYAN}• macOS:{Colors.END} brew install chromium")
+        print_status('info', f"HTML file was saved successfully at: {Colors.CYAN}{html_file}{Colors.END}")
+        return None
+
 def post_scan_menu(scan_data):
     """Display post-scan options menu"""
     while True:
@@ -1546,8 +2099,10 @@ def post_scan_menu(scan_data):
         print(f"{Colors.GREEN}[5]{Colors.END} Export to HTML with Charts {Colors.DIM}(Metrics Only){Colors.END}")
         print(f"{Colors.GREEN}[6]{Colors.END} Export to HTML with Charts {Colors.DIM}(Verbose - with device table){Colors.END}")
         print(f"{Colors.GREEN}[7]{Colors.END} Export Charts as PNG {Colors.DIM}(4 chart images){Colors.END}")
-        print(f"{Colors.GREEN}[8]{Colors.END} Export ALL formats {Colors.DIM}(Metrics Only){Colors.END}")
-        print(f"{Colors.GREEN}[9]{Colors.END} Export ALL formats + PNG {Colors.DIM}(Verbose){Colors.END}")
+        print(f"{Colors.GREEN}[8]{Colors.END} Export HTML as Long PNG {Colors.DIM}(Full page screenshot - Metrics){Colors.END}")
+        print(f"{Colors.GREEN}[9]{Colors.END} Export HTML as Long PNG {Colors.DIM}(Full page screenshot - Verbose){Colors.END}")
+        print(f"{Colors.GREEN}[10]{Colors.END} Export ALL formats {Colors.DIM}(Metrics Only){Colors.END}")
+        print(f"{Colors.GREEN}[11]{Colors.END} Export ALL formats + Screenshots {Colors.DIM}(Verbose){Colors.END}")
         print(f"{Colors.YELLOW}[0]{Colors.END} {Colors.DIM}Exit{Colors.END}")
 
         print_separator('─', 60, Colors.DIM)
@@ -1573,18 +2128,23 @@ def post_scan_menu(scan_data):
             elif choice == '7':
                 export_png_charts(scan_data)
             elif choice == '8':
+                export_html_as_png(scan_data, verbose=False)
+            elif choice == '9':
+                export_html_as_png(scan_data, verbose=True)
+            elif choice == '10':
                 print_status('info', "Exporting all formats (metrics only)...")
                 export_json(scan_data, verbose=False)
                 export_csv(scan_data, verbose=False)
                 export_html_with_charts(scan_data, verbose=False)
                 print_status('success', "All formats exported successfully!")
-            elif choice == '9':
-                print_status('info', "Exporting all formats + PNG (verbose mode)...")
+            elif choice == '11':
+                print_status('info', "Exporting all formats + screenshots (verbose mode)...")
                 export_json(scan_data, verbose=True)
                 export_csv(scan_data, verbose=True)
                 export_html_with_charts(scan_data, verbose=True)
                 export_png_charts(scan_data)
-                print_status('success', "All formats exported successfully!")
+                export_html_as_png(scan_data, verbose=True)
+                print_status('success', "All formats and screenshots exported successfully!")
             else:
                 print_status('error', "Invalid option. Please try again.")
 
@@ -1708,6 +2268,11 @@ def main():
 
     api_key = load_api_key()
 
+    # Check requirements before proceeding
+    if not check_requirements(api_key):
+        print(f"\n{Colors.CYAN}[i] Exiting MOIRAGUARD...{Colors.END}\n")
+        sys.exit(0)
+
     # Load countries and display selection menu
     countries = load_countries()
     country_code, country_name = display_country_menu(countries)
@@ -1740,13 +2305,8 @@ def main():
         print_status('info', f"Metrics mode - {Colors.GREEN}collecting counts only{Colors.END}")
 
     try:
-        loading_animation("Connecting to Shodan API", 1.5)
+        # Initialize API connection (already verified in requirements check)
         api = shodan.Shodan(api_key)
-        print_status('success', "Shodan API connection established")
-
-        loading_animation("Verifying API credentials", 1)
-        info = api.info()
-        print_status('success', f"API verified - Query credits: {Colors.GREEN}{info.get('query_credits', 'N/A')}{Colors.END}")
 
         print(f"\n{Colors.BOLD}{Colors.CYAN}[{datetime.now().strftime('%H:%M:%S')}]{Colors.END} {Colors.GREEN}Initiating MOIRAGUARD reconnaissance sweep...{Colors.END}\n")
         time.sleep(1)
