@@ -54,3 +54,9 @@ Moiraguard-Eye-O-Tea-Exports/
 *.csv
 *.json.bak
 *.png
+
+# Exception: Allow examples folder (for documentation)
+!examples/
+!examples/*.png
+!examples/*.jpg
+!examples/*.html

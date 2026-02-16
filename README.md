@@ -1,12 +1,21 @@
 # MOIRAGUARD - Eye O Tea (IoT) Scanner
 
+<div align="center">
+
+[![GitHub](https://img.shields.io/badge/GitHub-Moiraguard-181717?style=for-the-badge&logo=github)](https://github.com/Moiraguard/moiraguard-eye-o-tea-scanner)
+[![Python](https://img.shields.io/badge/Python-3.7%2B-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/)
+[![License](https://img.shields.io/badge/License-Research%20Only-red?style=for-the-badge)](https://github.com/Moiraguard/moiraguard-eye-o-tea-scanner)
+[![DEFCON](https://img.shields.io/badge/DEFCON-GROUP%20CASA-00FF88?style=for-the-badge)](https://github.com/Moiraguard)
+
+</div>
+
 > **⚠️ IMPORTANT DISCLAIMER ⚠️**
 > **This tool is intended for SECURITY RESEARCH and EDUCATIONAL PURPOSES ONLY.**
 > **Unauthorized access to computer systems is ILLEGAL. Use this tool RESPONSIBLY and ETHICALLY.**
 > **The author and contributors are NOT responsible for any misuse or illegal activities.**
 
 <div align="center">
-  <img src="MoiraGuard-Eye-O-Tea-logo.png" alt="MOIRAGUARD Eye-O-Tea Logo" width="600">
+  <img src="examples/MoiraGuard-Eye-O-Tea-logo.png" alt="MOIRAGUARD Eye-O-Tea Logo" width="600">
 
   ### 👁️ Global IoT/IIoT Infrastructure Reconnaissance
   **Monitoring IoT Reconnaissance & Guard**
@@ -19,6 +28,12 @@
 ### Author
 **Mohammed Amine Moulay (@MLY)**
 DEFCON GROUP CASANLANCA 2026 | IoT Security Research
+
+### 🔗 Quick Links
+- **Repository**: https://github.com/Moiraguard/moiraguard-eye-o-tea-scanner
+- **Issues & Bug Reports**: https://github.com/Moiraguard/moiraguard-eye-o-tea-scanner/issues
+- **Pull Requests**: https://github.com/Moiraguard/moiraguard-eye-o-tea-scanner/pulls
+- **Releases**: https://github.com/Moiraguard/moiraguard-eye-o-tea-scanner/releases
 
 ## ⚠️ LEGAL DISCLAIMER
 
@@ -113,6 +128,33 @@ DEFCON GROUP CASANLANCA 2026 | IoT Security Research
   - Passive reconnaissance only
   - Legal warnings and reminders
 
+## 📁 Project Structure
+
+```
+moiraguard-eye-o-tea-scanner/
+├── moiraguard_iot_scanner.py    # Main scanner application
+├── check_setup.py                # Setup verification tool
+├── requirements.txt              # Python dependencies
+├── countries.json                # Country code mappings (50+ countries)
+├── targets.json                  # Scan profile configurations
+├── shodan_api.key               # Your Shodan API key (create this)
+├── examples/                     # Example files (tracked in git)
+│   ├── MoiraGuard-Eye-O-Tea-logo.png
+│   ├── moiraguard_report_20260216_185544.png
+│   └── README.md
+├── Moiraguard-Eye-O-Tea-Exports/ # Scan outputs (git ignored)
+│   ├── *.json                   # JSON exports
+│   ├── *.csv                    # CSV exports
+│   ├── *.html                   # HTML reports
+│   └── *.png                    # Chart/screenshot exports
+└── README.md                     # This file
+```
+
+**Note:**
+- The `examples/` folder contains sample files for documentation (included in git)
+- The `Moiraguard-Eye-O-Tea-Exports/` folder is created automatically and excluded from git (sensitive data)
+- Your API key file (`shodan_api.key`) is protected by `.gitignore`
+
 ## 🚀 Installation
 
 ### Prerequisites
@@ -125,8 +167,8 @@ DEFCON GROUP CASANLANCA 2026 | IoT Security Research
 
 #### 1. Clone the Repository
 ```bash
-git clone <repository-url>
-cd DEFCON-GROUP-CASA/tools
+git clone https://github.com/Moiraguard/moiraguard-eye-o-tea-scanner.git
+cd moiraguard-eye-o-tea-scanner
 ```
 
 #### 2. Install Python Dependencies
@@ -794,9 +836,11 @@ High-quality image files perfect for:
 Below is an example of the generated HTML report converted to PNG (Full Page Screenshot):
 
 <div align="center">
-  <img src="Moiraguard-Eye-O-Tea-Exports/moiraguard_report_20260216_185544.png" alt="MOIRAGUARD HTML Report Example" width="800">
+  <img src="examples/moiraguard_report_20260216_185544.png" alt="MOIRAGUARD HTML Report Example" width="800">
   <br>
   <em>Example: MOIRAGUARD HTML Report - United States IoT Infrastructure Scan (283,882 devices)</em>
+  <br>
+  <sub>Sample report from the examples folder - Actual exports are saved to <code>Moiraguard-Eye-O-Tea-Exports/</code></sub>
 </div>
 
 The report features:
@@ -860,14 +904,40 @@ The report features:
 
 ## 🤝 Contributing
 
-Contributions are welcome for legitimate security research purposes. Please:
+Contributions are welcome for legitimate security research purposes! We appreciate your help in making MOIRAGUARD better.
 
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Submit a pull request
+### How to Contribute
 
-**Note:** All contributions must align with ethical security research practices.
+1. **Fork the repository**: https://github.com/Moiraguard/moiraguard-eye-o-tea-scanner/fork
+2. **Clone your fork**:
+   ```bash
+   git clone https://github.com/YOUR_USERNAME/moiraguard-eye-o-tea-scanner.git
+   cd moiraguard-eye-o-tea-scanner
+   ```
+3. **Create a feature branch**:
+   ```bash
+   git checkout -b feature/your-feature-name
+   ```
+4. **Make your changes** and commit them:
+   ```bash
+   git add .
+   git commit -m "Add: your feature description"
+   ```
+5. **Push to your fork**:
+   ```bash
+   git push origin feature/your-feature-name
+   ```
+6. **Submit a Pull Request**: https://github.com/Moiraguard/moiraguard-eye-o-tea-scanner/pulls
+
+### Contribution Guidelines
+
+- All contributions must align with ethical security research practices
+- Follow existing code style and conventions
+- Add appropriate documentation for new features
+- Test your changes thoroughly
+- Ensure no sensitive information (API keys, credentials) is committed
+
+**Note:** Contributions that facilitate malicious activities will be rejected.
 
 ## 📄 License
 
@@ -891,11 +961,22 @@ DEFCON GROUP CASANLANCA 2026
 
 ## 🙏 Acknowledgments
 
-- Shodan.io for providing the API
-- DEFCON GROUP CASANLANCA community
-- Open source security research community
+- **Shodan.io** for providing the comprehensive IoT search engine API
+- **DEFCON GROUP CASANLANCA** community for supporting security research
+- **Open source security research community** for continuous innovation
+- All contributors who help improve this tool
+
+## ⭐ Support the Project
+
+If you find this tool useful for your security research:
+- ⭐ Star the repository: https://github.com/Moiraguard/moiraguard-eye-o-tea-scanner
+- 🐛 Report bugs or suggest features via Issues
+- 🤝 Contribute code improvements
+- 📢 Share with the security research community
 
 ---
+
+<div align="center">
 
 **Remember:** With great power comes great responsibility. Use this tool ethically and legally.
 
@@ -903,3 +984,9 @@ DEFCON GROUP CASANLANCA 2026
        👁️  Eye-O-Tea  👁️
     Stay curious, stay ethical
 ```
+
+**[⬆ Back to Top](#moiraguard---eye-o-tea-iot-scanner)**
+
+Made with 💚 by [Mohammed Amine Moulay](https://github.com/Moiraguard) | DEFCON GROUP CASANLANCA 2026
+
+</div>
