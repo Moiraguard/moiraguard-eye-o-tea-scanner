@@ -20,6 +20,59 @@
 
 **MOIRAGUARD** (Eye-O-Tea) is an advanced IoT/IIoT security reconnaissance framework designed for security research and educational purposes. Built for DEFCON GROUP CASABLANCA 2026, this tool performs passive reconnaissance on global IoT infrastructure using the Shodan API.
 
+---
+
+### 🏷️ Current Version — v1.3
+
+> **What's new in v1.3 — Active Protocol Verification**
+>
+> Previous versions discovered exposed devices by querying Shodan's indexed database.
+> v1.3 goes one step further: after discovery, MOIRAGUARD connects **directly** to each
+> device and confirms whether it truly accepts connections without credentials.
+>
+> The output changes from:
+> ```
+> [◆] Found 12,847 exposed RTSP cameras
+> ```
+> to:
+> ```
+> [◆] Found 12,847 RTSP cameras  →  [CONFIRMED] 3,291 stream without credentials
+> ```
+>
+> This is the difference between a **Shodan count** and a **real security finding**.
+> No extra Shodan credits are consumed — probing uses direct TCP/UDP sockets only.
+
+| Version | Highlights |
+|---------|-----------|
+| **v1.3** ✅ | **Active Protocol Verification** — MQTT, RTSP, Modbus, BACnet, HTTP/HTTPS probing |
+| v1.2 ✅ | Mode selection menu — Scanner, Monitor, Intelligence modes |
+| v1.1 ✅ | Export engine — JSON, CSV, HTML reports, PNG charts |
+| v1.0 ✅ | Core IoT/IIoT reconnaissance across 6 device categories |
+
+> [!CAUTION]
+> **Legal Warning — Read before using the Verify Exposure feature.**
+>
+> Unlike the Query Mode (which only reads Shodan's existing index), the Verification step
+> makes **real outbound TCP/UDP connections from your machine to the target IPs**.
+>
+> - **Your IP address is visible to every device you probe.** Firewalls, IDS/IPS systems,
+>   and honeypots on the target side will log your connection attempt, your source IP,
+>   and the exact packet you sent.
+> - **Probing a system without explicit written permission from its owner is illegal**
+>   in most jurisdictions — including Morocco (Law 09-08), the EU (GDPR + Computer Misuse
+>   laws), and the United States (CFAA). The fact that a device appeared in a Shodan search
+>   does **not** constitute permission to connect to it.
+> - **Your IP may be flagged, blocklisted, or reported** to your ISP or law enforcement
+>   if a target's security monitoring detects the probe.
+> - Running this feature from a **corporate or university network** may violate your
+>   organisation's acceptable-use policy, regardless of the target.
+>
+> **Only use Verify Exposure against systems you own or have explicit written authorisation
+> to test.** Authorised use cases include: your own lab/homelab, a pentest engagement with
+> a signed scope-of-work, or a CTF environment.
+
+---
+
 ### Author
 **Mohammed Amine Moulay (@MLY)**
 DEFCON GROUP CASABLANCA 2026 | Security Research
@@ -83,7 +136,21 @@ DEFCON GROUP CASABLANCA 2026 | Security Research
 
 ## 🎯 Features
 
-### Current Features (v1.1)
+### Current Features (v1.3)
+
+- **Active Protocol Verification** — confirms real unauthenticated access, not just Shodan estimates
+  - Runs directly after a Verbose scan from the post-scan menu (`[V]`)
+  - Probes each discovered IP with the correct protocol packet — **zero Shodan credits consumed**
+  - Parallel probing via thread pool (10 workers) — fast even for large IP lists
+  - Per-IP `[CONFIRMED]` / `[protected]` output in real time
+  - Final exposure rate: *"X% of sampled devices have NO authentication"*
+  - See [Active Protocol Verification](#-active-protocol-verification) for full details
+
+- **Four Operation Modes** — selected at startup before any scan
+  - **[1] Query Mode** — Search Shodan's indexed database (original behavior)
+  - **[2] Scanner Mode** — Submit on-demand active scans of IP/CIDR targets via `api.scan()`; polls status in real-time with a spinner; optionally queries results when done
+  - **[3] Monitor Mode** — Manage persistent Shodan network alerts: list, create, inspect, and delete alerts via `api.create_alert()` / `api.alerts()`
+  - **[4] Intelligence Mode** — View all Shodan-known protocols and scanned ports grouped by range; IoT-relevant ports (554, 1883, 502, 47808, 23, 80, 443) are highlighted; **zero credits consumed**
 
 - **Multi-Category IoT Scanning**
   - Smart Home Appliances & Consumer IoT
@@ -316,9 +383,88 @@ You'll see the MOIRAGUARD banner and initialization:
 [i] Key length: 32 characters
 ```
 
-#### Step 2: Select Target Country
+#### Step 2: Select Operation Mode
 
-When launched, you'll see a menu:
+After loading your API key, MOIRAGUARD presents the mode menu:
+
+```
+╔═══════════════════════════════════════════╗
+║       SELECT OPERATION MODE             ║
+╚═══════════════════════════════════════════╝
+
+  [1] Query Mode      — Search Shodan's indexed database (current behavior)
+  [2] Scanner Mode    — On-demand active scan of IP/CIDR targets
+  [3] Monitor Mode    — Set up persistent network alerts
+  [4] Intelligence    — View Shodan protocols & active ports (free)
+
+──────────────────────────────────────────────────
+
+Select mode [1-4]:
+```
+
+**Mode descriptions:**
+
+| Mode | Credits Used | Description |
+|------|-------------|-------------|
+| [1] Query Mode | ~6 query credits | Full IoT/IIoT reconnaissance scan across 6 device categories |
+| [2] Scanner Mode | Scan credits | Submit active scans to Shodan's distributed scanner for specific IPs/CIDRs |
+| [3] Monitor Mode | 0 | Manage persistent alerts that notify you of new Shodan findings |
+| [4] Intelligence | 0 | Browse all protocols and scanned ports with IoT port cross-reference |
+
+---
+
+##### Scanner Mode walkthrough
+
+1. Your scan-credit balance is displayed upfront with a warning if zero
+2. Enter comma-separated IPs or CIDR ranges (e.g. `192.168.1.1, 10.0.0.0/24`)
+3. Browse available scan protocols (paginated, press Enter/q to navigate)
+4. Confirm submission — scan ID, queued IP count, and remaining credits are shown
+5. A live spinner polls `api.scan_status()` every 5 seconds until `DONE`
+6. Optionally query Shodan for the scanned IPs immediately after completion
+
+##### Monitor Mode walkthrough
+
+Sub-menu loop with four actions:
+
+```
+  [1] List active alerts
+  [2] Create new alert (name + IP/CIDR)
+  [3] Check alert results
+  [4] Delete alert
+  [0] Back
+```
+
+- **List**: shows alert ID, name, IP range, and creation date for all active alerts
+- **Create**: prompts for a name and CIDR → calls `api.create_alert()`
+- **Check**: enter an alert ID to view matched hosts (up to 10 shown)
+- **Delete**: enter an alert ID, confirm, then permanently removes it
+
+##### Intelligence Mode walkthrough
+
+No credits consumed — marked `[FREE]` in the header.
+
+1. **Protocols table** — all Shodan-known scan protocols, sorted alphabetically in a two-column layout
+2. **Ports list** — all ports Shodan actively scans, grouped into three ranges:
+   - Well-Known (0–1023)
+   - Registered (1024–49151)
+   - Dynamic (49152+)
+3. **IoT cross-reference** — the following ports are starred (`*`) in the list and summarized in a dedicated table showing whether each is currently active in Shodan's scanner:
+
+| Port | Protocol | Purpose |
+|------|----------|---------|
+| 23 | Telnet | Legacy devices / default credentials |
+| 80 | HTTP | Web management interfaces |
+| 443 | HTTPS | Secure web interfaces |
+| 502 | Modbus | Industrial SCADA/ICS |
+| 554 | RTSP | IP camera streams |
+| 1883 | MQTT | IoT message brokers |
+| 47808 | BACnet | Building automation |
+
+---
+
+#### Step 3: Select Target Country (Query Mode only)
+
+When **Query Mode [1]** is selected, you'll see:
 
 ```
 ╔═══════════════════════════════════════════════════════════╗
@@ -342,7 +488,7 @@ Select option:
 - Enter a number (1-N) to select a specific country
 - Enter `C` to input a custom 2-letter country code
 
-#### Step 3: Choose Verbosity Level
+#### Step 4: Choose Verbosity Level
 
 Select how much detail you want to collect:
 
@@ -366,7 +512,7 @@ Select mode [1/2]:
 - Creating comprehensive reports
 - Investigating specific devices
 
-#### Step 4: Scan Execution
+#### Step 5: Scan Execution
 
 The scanner will now:
 1. Connect to Shodan API
@@ -390,7 +536,7 @@ Risk Level: CRITICAL ⚠️⚠️⚠️
 
 **Scan Duration:** Approximately 1-2 minutes per category (6-12 minutes total)
 
-#### Step 5: Review Summary
+#### Step 6: Review Summary
 
 After all scans complete, you'll see:
 - Total devices discovered
@@ -398,7 +544,7 @@ After all scans complete, you'll see:
 - Risk level analysis
 - Geographic distribution (if applicable)
 
-#### Step 6: Export Results (Post-Scan Menu)
+#### Step 7: Export Results (Post-Scan Menu)
 
 Choose how to export your findings:
 
@@ -407,19 +553,25 @@ Choose how to export your findings:
 ║            POST-SCAN OPTIONS                    ║
 ╚═══════════════════════════════════════════════════════════╝
 
-[1] Export to JSON (Metrics Only)
-[2] Export to JSON (Verbose - with IP addresses)
-[3] Export to CSV (Metrics Only)
-[4] Export to CSV (Verbose - with device details)
-[5] Export to HTML with Charts (Metrics Only)
-[6] Export to HTML with Charts (Verbose - with device table)
-[7] Export Charts as PNG (4 chart images)
-[8] Export ALL formats (Metrics Only)
-[9] Export ALL formats + PNG (Verbose)
-[0] Exit
+[V] Verify Exposure — Active protocol probing (confirms unauthenticated access, 0 credits)
+────────────────────────────────────────────────────────────
+[1]  Export to JSON (Metrics Only)
+[2]  Export to JSON (Verbose - with IP addresses)
+[3]  Export to CSV (Metrics Only)
+[4]  Export to CSV (Verbose - with device details)
+[5]  Export to HTML with Charts (Metrics Only)
+[6]  Export to HTML with Charts (Verbose - with device table)
+[7]  Export Charts as PNG (4 chart images)
+[8]  Export HTML as Long PNG (Metrics)
+[9]  Export HTML as Long PNG (Verbose)
+[10] Export ALL formats (Metrics Only)
+[11] Export ALL formats + Screenshots (Verbose)
+[0]  Exit
 
 Select option:
 ```
+
+> **Tip:** Run `[V]` before exporting — verified results give your report concrete confirmed findings rather than raw discovery counts.
 
 **Export Recommendations:**
 
@@ -444,7 +596,7 @@ Select option:
 [✓] All formats exported successfully!
 ```
 
-#### Step 7: View Reports
+#### Step 8: View Reports
 
 **Open HTML Report:**
 ```bash
@@ -526,6 +678,51 @@ python3 moiraguard_iot_scanner.py
 # [0] Exit
 ```
 
+#### Example 5: Active Scan with Scanner Mode
+```bash
+python3 moiraguard_iot_scanner.py
+# Select: [2] Scanner Mode
+# Enter targets: 198.51.100.0/24
+# Browse protocols list (press Enter or 'q')
+# Confirm: Y
+# Wait for spinner to reach DONE
+# Optionally query results: Y
+# Result: Active scan submitted; live status polling; matched hosts displayed
+```
+
+#### Example 6: Free Intelligence Overview
+```bash
+python3 moiraguard_iot_scanner.py
+# Select: [4] Intelligence
+# No further prompts — outputs immediately
+# Result: Full protocol list + port ranges with IoT ports highlighted; 0 credits used
+```
+
+#### Example 8: Confirm Unauthenticated Access with Verification
+```bash
+python3 moiraguard_iot_scanner.py
+# Select: [1] Query Mode
+# Select: [1] Morocco (or any country)
+# Select: [2] Verbose Mode   ← IPs must be collected for verification
+# After scan: [V] Verify Exposure
+#   Proceed? Y
+#   Max IPs per category: 10
+# Result: [CONFIRMED] / [protected] per IP, final exposure rate %
+# Then:  [6] Export HTML Verbose  ← report now reflects confirmed findings
+```
+
+#### Example 7: Persistent Alert Setup with Monitor Mode
+```bash
+python3 moiraguard_iot_scanner.py
+# Select: [3] Monitor Mode
+# [2] Create new alert
+#   Name: Lab Network
+#   IP/CIDR: 10.0.0.0/24
+# [1] List active alerts → confirm new alert appears
+# [3] Check alert results → enter the alert ID
+# [0] Back
+```
+
 ## 📁 Project Structure
 
 ```
@@ -581,6 +778,107 @@ The tool reads your API key from `shodan_api.key`. Keep this file secure and nev
 | MQTT Brokers | 1883 | HIGH ⚠️⚠️ | IoT messaging infrastructure |
 | Industrial IoT | Various | CRITICAL ⚠️⚠️⚠️ | IIoT gateways, PLCs, industrial systems |
 
+## 🔍 Active Protocol Verification
+
+> **What makes this different from a plain Shodan search:**
+> Shodan tells you a port is *open*. MOIRAGUARD goes one step further and talks directly to the device to confirm whether it requires credentials or not.
+
+### How it works
+
+After a **Verbose** Query Mode scan, select `[V]` from the post-scan menu. MOIRAGUARD will:
+
+1. Take the IPs collected during the scan (stored per category)
+2. Connect directly to each device using the correct protocol
+3. Send a minimal handshake packet — just enough to get a definitive yes/no on authentication
+4. Report `[CONFIRMED]` (open) or `[protected]` (auth enforced) per IP, in real time
+5. Show a final exposure rate across all categories
+
+**No Shodan API calls are made during this step — zero credits consumed.**
+
+### Protocol probes
+
+Each device category is probed with the protocol it was discovered for:
+
+| Category | Protocol | What is sent | What confirms exposure |
+|---|---|---|---|
+| IoT Cameras | RTSP | `OPTIONS * RTSP/1.0` | `200 OK` — stream accessible without credentials |
+| SCADA/ICS | Modbus TCP | Read Coils request (FC 0x01) | Any valid response — Modbus has no auth layer |
+| Building Automation | BACnet/IP | UDP Who-Is packet | I-Am response received |
+| MQTT Brokers | MQTT 3.1.1 | Anonymous CONNECT packet | CONNACK return code 0 |
+| Smart Home Devices | HTTP/HTTPS | `GET /` | HTTP 200 — interface accessible |
+| Industrial IoT | HTTP/HTTPS | `GET /` | HTTP 200 — management interface open |
+
+### Why each probe is meaningful
+
+- **MQTT CONNACK rc=0** — the broker explicitly told the client "you're in". No credentials were provided. This is an unambiguous confirmation.
+- **RTSP 200** — the camera accepted the session negotiation. An attacker could immediately stream video using `rtsp://ip:554`.
+- **Modbus any response** — Modbus has no authentication at the protocol level. If the PLC responds, it will execute any read/write command.
+- **BACnet I-Am** — the device answered an unauthenticated broadcast-style query, exposing its object list and device ID.
+- **HTTP 200** — the web interface loaded without triggering a login redirect or 401 challenge.
+
+### Sample output
+
+```
+╔═══════════════════════════════════════════════════════════╗
+║     ACTIVE PROTOCOL VERIFICATION ENGINE           ║
+╚═══════════════════════════════════════════════════════════╝
+
+[!] This makes DIRECT TCP/UDP connections to discovered IPs.
+[i] Only probe systems you are authorised to test.
+[i] 47 IPs available across 4 categories.
+────────────────────────────────────────────────────────────
+
+Proceed with active verification? [Y/n]: Y
+Max IPs to probe per category [10]: 10
+
+[MQTT] MQTT Brokers — probing 10 IP(s)
+──────────────────────────────────────────────────
+  [CONFIRMED] 203.0.113.42:1883   CONNACK rc=0 — anonymous access accepted
+  [protected] 198.51.100.17:1883  CONNACK rc=5 — broker refused (auth required)
+  [CONFIRMED] 192.0.2.88:1883     CONNACK rc=0 — anonymous access accepted
+  [protected] 203.0.113.11:1883   No valid CONNACK received
+  → 2/4 confirmed unauthenticated
+
+[RTSP] IoT Cameras — probing 10 IP(s)
+──────────────────────────────────────────────────
+  [CONFIRMED] 198.51.100.9:554    RTSP 200 OK — stream accessible without credentials
+  [protected] 203.0.113.55:554    RTSP 401 — authentication required
+  [CONFIRMED] 192.0.2.23:554      RTSP 200 OK — stream accessible without credentials
+  → 2/3 confirmed unauthenticated
+
+[Modbus] SCADA/ICS — probing 10 IP(s)
+──────────────────────────────────────────────────
+  [CONFIRMED] 203.0.113.7:502     Modbus FC01 response — PLC answers reads without auth
+  [CONFIRMED] 192.0.2.14:502      Modbus exception fc=0x81 code=2 — PLC reachable, no transport auth
+  → 2/2 confirmed unauthenticated
+
+══════════════════════════════════════════════════════════════════════
+VERIFICATION SUMMARY
+──────────────────────────────────────────────────────────────────────
+  Devices probed      : 9
+  Confirmed open      : 6
+  Auth enforced       : 3
+
+  ⚠️  66.7% of sampled devices have NO authentication.
+  These are CONFIRMED exposures — not just Shodan estimates.
+══════════════════════════════════════════════════════════════════════
+```
+
+### Requirements
+
+- **Verbose scan required** — verification needs actual IPs, which are only collected in Verbose mode. Metrics mode stores counts only.
+- **Network reachability** — the discovered IPs must be reachable from your machine. Internet-facing devices indexed by Shodan are reachable by definition.
+- **No extra dependencies** — uses Python's standard `socket` and `ssl` modules only. No new packages to install.
+
+### Limitations
+
+- **Sample size** — by default probes up to 10 IPs per category. You can increase this at the prompt, but Shodan's free result set is capped at a few matches per query, so verbose scans typically collect 3–100 IPs per category.
+- **Timeouts count as protected** — if a device is firewalled or unreachable, it is marked `[protected]`. This is conservative: a timeout does not confirm auth is enforced, only that the probe did not complete.
+- **HTTPS certificates** — HTTPS probes skip certificate validation (self-signed certs are common on IoT devices). The probe checks the HTTP response code only.
+- **Modbus semantics** — any Modbus response (including exception codes) is marked confirmed, because Modbus has no transport-level authentication. An exception means the PLC rejected the *request*, not the *connection*.
+
+---
+
 ## 🔮 Upcoming Features (Roadmap)
 
 ### Version 1.1 ✅ (COMPLETED)
@@ -590,17 +888,42 @@ The tool reads your API key from `shodan_api.key`. Keep this file secure and nev
   - HTML reports with interactive charts (Chart.js)
   - Dual verbosity modes (Metrics vs Verbose)
 
-- [ ] **Multi-Target Scanning** (In Progress)
+### Version 1.2 ✅ (COMPLETED)
+- [x] **Scanner Mode** — Active on-demand scanning via `api.scan()`
+  - IP/CIDR target input with validation
+  - Protocol browser (paginated)
+  - Real-time scan-status polling with spinner
+  - Post-scan query of discovered hosts
+- [x] **Monitor Mode** — Persistent network alert management via `api.alerts()`
+  - List, create, inspect, and delete alerts
+  - Interactive sub-menu loop
+- [x] **Intelligence Mode** — Free API endpoints, zero credits consumed
+  - Full protocol directory (`api.protocols()`)
+  - All scanned ports grouped by range (`api.ports()`)
+  - IoT-relevant port cross-reference and activity status
+- [x] **Mode Selection Menu** at startup — choose Query / Scanner / Monitor / Intelligence before any scan
+
+### Version 1.3 ✅ (COMPLETED)
+- [x] **Active Protocol Verification** — confirms unauthenticated access with direct device probing
+  - MQTT: anonymous CONNECT → CONNACK return code check
+  - RTSP: OPTIONS request → HTTP 200 vs 401
+  - Modbus: Read Coils FC 0x01 → any response confirms no transport auth
+  - BACnet: UDP Who-Is → I-Am response
+  - HTTP/HTTPS: GET / → 200 vs 401/403
+  - Parallel probing via thread pool (zero Shodan credits)
+  - Integrated into post-scan menu as `[V]`
+
+### Version 1.4 (Planned)
+- [ ] **Multi-Target Scanning** (Query Mode)
   - Select multiple countries in one scan
-  - Create target profiles/presets (targets.json ready)
+  - Create target profiles/presets (`targets.json` ready)
   - Save and load scan configurations
 
-- [ ] **Enhanced Filtering** (Planned)
+- [ ] **Enhanced Filtering**
   - Filter by ISP/Organization
   - Filter by specific vendors
   - Custom Shodan query builder
 
-### Version 1.2 (Planned)
 - [ ] **Advanced Analytics**
   - Historical data tracking
   - Trend analysis over time
@@ -609,12 +932,6 @@ The tool reads your API key from `shodan_api.key`. Keep this file secure and nev
 - [ ] **Integration Features**
   - Webhook notifications
   - Slack/Discord alerts
-  - API for programmatic access
-
-- [ ] **Database Support**
-  - SQLite/PostgreSQL storage
-  - Query historical scans
-  - Compare scans over time
 
 ### Version 2.0 (Future)
 - [ ] **Web Dashboard**
@@ -622,10 +939,10 @@ The tool reads your API key from `shodan_api.key`. Keep this file secure and nev
   - Interactive maps
   - Visualization charts
 
-- [ ] **Automated Scanning**
-  - Scheduled scans
-  - Continuous monitoring mode
+- [ ] **Scheduled Scanning**
+  - Cron-style recurring scans
   - Change detection alerts
+  - Email/webhook notifications on new findings
 
 - [ ] **Extended Protocol Support**
   - CoAP (Constrained Application Protocol)
@@ -765,7 +1082,16 @@ If you encounter issues not listed here:
 
 ### API Credit Usage
 
-Each scan category uses **1 query credit**:
+| Mode | Credit Type | Cost |
+|------|-------------|------|
+| **[1] Query Mode** — per category | Query credits | 1 each |
+| **[1] Query Mode** — full scan (6 categories) | Query credits | **6 total** |
+| **[V] Verify Exposure** — active probing | None (direct socket) | **0** |
+| **[2] Scanner Mode** — per submitted scan | Scan credits | varies by IP count |
+| **[3] Monitor Mode** — alert management | None | **0** |
+| **[4] Intelligence Mode** | None | **0** |
+
+**Query Mode breakdown (6 credits per full run):**
 - Smart Home Devices: 1 credit
 - IoT Cameras: 1 credit
 - SCADA/ICS: 1 credit
@@ -773,9 +1099,9 @@ Each scan category uses **1 query credit**:
 - MQTT Brokers: 1 credit
 - Industrial IoT: 1 credit
 
-**Total per scan: 6 credits**
+With Shodan Membership (10,000 query credits/month), you can run approximately **1,666 full Query Mode scans per month**.
 
-With Shodan Membership (10,000 credits/month), you can run approximately **1,666 full scans per month**.
+Scanner Mode consumes **scan credits** (separate pool). Monitor Mode and Intelligence Mode are completely free — great for exploration without touching your quota.
 
 ## 📊 Export Formats
 

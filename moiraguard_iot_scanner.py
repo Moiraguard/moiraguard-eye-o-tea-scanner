@@ -35,6 +35,9 @@ import json
 import csv
 from pathlib import Path
 import base64
+import socket
+import ssl
+import concurrent.futures
 import matplotlib
 matplotlib.use('Agg')  # Non-interactive backend
 import matplotlib.pyplot as plt
@@ -2092,6 +2095,8 @@ def post_scan_menu(scan_data):
         print(f"{Colors.BOLD}{Colors.CYAN}║{Colors.END}            {Colors.WHITE}POST-SCAN OPTIONS{Colors.END}                    {Colors.BOLD}{Colors.CYAN}║{Colors.END}")
         print(f"{Colors.BOLD}{Colors.CYAN}╚═══════════════════════════════════════════════════════════╝{Colors.END}\n")
 
+        print(f"{Colors.MAGENTA}[V]{Colors.END} {Colors.BOLD}Verify Exposure{Colors.END} {Colors.DIM}— Active protocol probing (confirms unauthenticated access, 0 credits){Colors.END}")
+        print_separator('─', 60, Colors.DIM)
         print(f"{Colors.GREEN}[1]{Colors.END} Export to JSON {Colors.DIM}(Metrics Only){Colors.END}")
         print(f"{Colors.GREEN}[2]{Colors.END} Export to JSON {Colors.DIM}(Verbose - with IP addresses){Colors.END}")
         print(f"{Colors.GREEN}[3]{Colors.END} Export to CSV {Colors.DIM}(Metrics Only){Colors.END}")
@@ -2113,6 +2118,8 @@ def post_scan_menu(scan_data):
             if choice == '0':
                 print_status('info', "Exiting MOIRAGUARD...")
                 break
+            elif choice.upper() == 'V':
+                verify_exposure(scan_data)
             elif choice == '1':
                 export_json(scan_data, verbose=False)
             elif choice == '2':
@@ -2258,6 +2265,722 @@ def print_summary(stats, api=None, target_country=None):
     print(f"{Colors.BOLD}{Colors.CYAN}{'='*70}{Colors.END}\n")
 
 # ╔═══════════════════════════════════════════════════════════════════╗
+# ║              ACTIVE PROTOCOL VERIFICATION ENGINE                   ║
+# ╚═══════════════════════════════════════════════════════════════════╝
+
+def _probe_mqtt(ip, port=1883, timeout=5):
+    """Send anonymous MQTT CONNECT, check CONNACK return code.
+    rc=0 means the broker accepted the connection without credentials."""
+    try:
+        client_id = b'moiravfy1'
+        # MQTT 3.1.1 variable header: protocol name (6B) + level (1B) + flags (1B) + keepalive (2B)
+        var_header = b'\x00\x04MQTT\x04\x00\x00\x3c'
+        payload    = b'\x00\x09' + client_id          # 2-byte length prefix + client ID
+        remaining  = var_header + payload
+        packet     = bytes([0x10, len(remaining)]) + remaining  # CONNECT fixed header
+
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s.settimeout(timeout)
+        s.connect((ip, port))
+        s.sendall(packet)
+        response = s.recv(4)
+        s.close()
+
+        if len(response) >= 4 and response[0] == 0x20:
+            rc = response[3]
+            if rc == 0:
+                return True,  'CONNACK rc=0 — anonymous access accepted'
+            return False, f'CONNACK rc={rc} — broker refused (auth required)'
+        return False, 'No valid CONNACK received'
+    except Exception as e:
+        return False, str(e)
+
+
+def _probe_rtsp(ip, port=554, timeout=5):
+    """Send RTSP OPTIONS * and inspect response code.
+    200 = stream accessible without credentials, 401/403 = protected."""
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s.settimeout(timeout)
+        s.connect((ip, port))
+        s.sendall(b'OPTIONS * RTSP/1.0\r\nCSeq: 1\r\n\r\n')
+        response = s.recv(512).decode('utf-8', errors='ignore')
+        s.close()
+
+        first = response.split('\r\n')[0] if response else ''
+        if '200' in first:
+            return True,  'RTSP 200 OK — stream accessible without credentials'
+        elif '401' in first:
+            return False, 'RTSP 401 — authentication required'
+        elif '403' in first:
+            return False, 'RTSP 403 — forbidden'
+        return False, (first.strip()[:70] or 'No response')
+    except Exception as e:
+        return False, str(e)
+
+
+def _probe_modbus(ip, port=502, timeout=5):
+    """Send Modbus TCP Read Coils (FC 0x01) request.
+    Any valid Modbus response confirms the PLC is reachable and unauthenticated
+    (Modbus has no auth layer — if it responds, it's open)."""
+    try:
+        # MBAP header (7 B): TransactionID + ProtocolID + Length + UnitID
+        # PDU (5 B): FC=0x01 + StartAddr=0x0000 + Count=0x0001
+        request = b'\x00\x01\x00\x00\x00\x06\x01\x01\x00\x00\x00\x01'
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s.settimeout(timeout)
+        s.connect((ip, port))
+        s.sendall(request)
+        response = s.recv(256)
+        s.close()
+
+        if len(response) >= 8:
+            fc = response[7]
+            if fc == 0x01:
+                return True,  'Modbus FC01 response — PLC answers reads without auth'
+            elif fc == 0x81:
+                exc = response[8] if len(response) > 8 else '?'
+                return True,  f'Modbus exception fc=0x81 code={exc} — PLC reachable, no transport auth'
+            return True, f'Modbus response fc=0x{fc:02x} — device responding'
+        return False, 'No valid Modbus response'
+    except Exception as e:
+        return False, str(e)
+
+
+def _probe_bacnet(ip, port=47808, timeout=5):
+    """Send BACnet/IP Who-Is (UDP) and listen for I-Am response.
+    Any response confirms the device is reachable and unauthenticated."""
+    try:
+        # BACnet/IP Original-Unicast-NPDU Who-Is
+        # BVLC (4B): type=0x81, func=0x0a, len=0x0008
+        # NPDU (2B): version=0x01, control=0x00
+        # APDU (2B): type=0x10 (Unconfirmed-Req), service=0x08 (Who-Is)
+        who_is = b'\x81\x0a\x00\x08\x01\x00\x10\x08'
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.settimeout(timeout)
+        s.sendto(who_is, (ip, port))
+        response, _ = s.recvfrom(1024)
+        s.close()
+
+        if response:
+            return True, f'BACnet I-Am received ({len(response)} bytes) — device responding'
+        return False, 'Empty UDP response'
+    except socket.timeout:
+        return False, 'No response (timeout)'
+    except Exception as e:
+        return False, str(e)
+
+
+def _probe_telnet(ip, port=23, timeout=5):
+    """Connect to Telnet and read the login banner.
+    Receiving any banner confirms the service is alive and presenting itself."""
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s.settimeout(timeout)
+        s.connect((ip, port))
+        time.sleep(0.5)
+        banner = s.recv(256)
+        s.close()
+
+        if banner:
+            text = banner.decode('utf-8', errors='replace').strip()[:80]
+            return True, f'Telnet banner: {repr(text)}'
+        return False, 'Connected but no banner received'
+    except Exception as e:
+        return False, str(e)
+
+
+def _probe_http(ip, port=80, timeout=5):
+    """Send GET / and check HTTP status code.
+    200 = interface accessible without credentials.
+    Handles both HTTP and HTTPS (port 443/8443)."""
+    try:
+        raw = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        raw.settimeout(timeout)
+
+        if port in (443, 8443):
+            ctx = ssl.create_default_context()
+            ctx.check_hostname = False
+            ctx.verify_mode = ssl.CERT_NONE
+            s = ctx.wrap_socket(raw, server_hostname=ip)
+            scheme = 'HTTPS'
+        else:
+            s = raw
+            scheme = 'HTTP'
+
+        s.connect((ip, port))
+        s.sendall(f'GET / HTTP/1.0\r\nHost: {ip}\r\nUser-Agent: MOIRAGUARD/1.0\r\nConnection: close\r\n\r\n'.encode())
+        response = s.recv(512).decode('utf-8', errors='ignore')
+        s.close()
+
+        first = response.split('\r\n')[0].strip() if response else ''
+        if '200' in first:
+            return True,  f'{scheme} 200 — web interface accessible without auth'
+        elif '401' in first:
+            return False, f'{scheme} 401 — auth required'
+        elif '403' in first:
+            return False, f'{scheme} 403 — forbidden'
+        elif '301' in first or '302' in first:
+            return False, f'{scheme} redirect — likely to login page'
+        return False, (first[:70] or 'No response')
+    except Exception as e:
+        return False, str(e)
+
+
+# Maps each ScanData category → (protocol label, probe function, fallback port)
+_CATEGORY_PROBERS = {
+    'IoT Cameras':        ('RTSP',   _probe_rtsp,    554),
+    'SCADA/ICS':          ('Modbus', _probe_modbus,  502),
+    'Building Automation':('BACnet', _probe_bacnet, 47808),
+    'MQTT Brokers':       ('MQTT',   _probe_mqtt,   1883),
+    'Smart Home Devices': ('HTTP',   _probe_http,     80),
+    'Industrial IoT':     ('HTTP',   _probe_http,     80),
+}
+
+
+def verify_exposure(scan_data):
+    """Actively probe IPs collected during Verbose scan to confirm
+    each device is genuinely accessible without credentials.
+    Uses direct TCP/UDP sockets — zero Shodan credits consumed."""
+
+    print(f"\n{Colors.BOLD}{Colors.CYAN}╔═══════════════════════════════════════════════════════════╗{Colors.END}")
+    print(f"{Colors.BOLD}{Colors.CYAN}║{Colors.END}     {Colors.WHITE}ACTIVE PROTOCOL VERIFICATION ENGINE{Colors.END}           {Colors.BOLD}{Colors.CYAN}║{Colors.END}")
+    print(f"{Colors.BOLD}{Colors.CYAN}╚═══════════════════════════════════════════════════════════╝{Colors.END}\n")
+
+    # Require verbose scan data
+    total_ips = sum(len(cat['devices']) for cat in scan_data.categories.values())
+    if total_ips == 0:
+        print_status('warning', "No device IPs found in scan data.")
+        print_status('info', "Re-run Query Mode with Verbose mode selected to collect IPs.")
+        return
+
+    print_status('warning', f"{Colors.YELLOW}This makes DIRECT TCP/UDP connections to discovered IPs.{Colors.END}")
+    print_status('info',    "Only probe systems you are authorised to test.")
+    print_status('info',    f"{Colors.CYAN}{total_ips}{Colors.END} IPs available across "
+                            f"{Colors.CYAN}{len([c for c in scan_data.categories.values() if c['devices']])}{Colors.END} categories.")
+    print_separator('─', 60, Colors.DIM)
+
+    try:
+        confirm = input(f"\n{Colors.BOLD}Proceed with active verification? [Y/n]: {Colors.END}").strip().lower()
+    except KeyboardInterrupt:
+        print(f"\n{Colors.YELLOW}[!] Cancelled{Colors.END}")
+        return
+    if confirm not in ('', 'y', 'yes'):
+        print_status('info', "Verification cancelled.")
+        return
+
+    try:
+        limit_raw = input(f"{Colors.BOLD}Max IPs to probe per category [{Colors.CYAN}10{Colors.END}{Colors.BOLD}]: {Colors.END}").strip()
+        max_per_cat = int(limit_raw) if limit_raw.isdigit() and int(limit_raw) > 0 else 10
+    except KeyboardInterrupt:
+        print(f"\n{Colors.YELLOW}[!] Cancelled{Colors.END}")
+        return
+
+    print_separator('─', 60, Colors.DIM)
+
+    grand_probed    = 0
+    grand_confirmed = 0
+    verification_results = {}
+
+    for category, (proto_label, probe_fn, fallback_port) in _CATEGORY_PROBERS.items():
+        devices = scan_data.categories.get(category, {}).get('devices', [])
+        if not devices:
+            continue
+
+        targets = devices[:max_per_cat]
+        print(f"\n{Colors.BOLD}{Colors.CYAN}[{proto_label}]{Colors.END} "
+              f"{Colors.WHITE}{category}{Colors.END} — probing {Colors.CYAN}{len(targets)}{Colors.END} IP(s)")
+        print_separator('─', 50, Colors.DIM)
+
+        cat_results    = []
+        cat_confirmed  = 0
+
+        # Capture loop variables for the closure
+        _probe  = probe_fn
+        _fport  = fallback_port
+
+        def _task(device, probe=_probe, fport=_fport):
+            ip   = device.get('ip', '')
+            port = device.get('port', fport)
+            if not isinstance(port, int):
+                port = fport
+            if not ip:
+                return ip, port, False, 'No IP stored'
+            ok, detail = probe(ip, port)
+            return ip, port, ok, detail
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=10) as pool:
+            futures = {pool.submit(_task, dev): dev for dev in targets}
+            for future in concurrent.futures.as_completed(futures):
+                ip, port, ok, detail = future.result()
+                cat_results.append({'ip': ip, 'port': port, 'confirmed': ok, 'detail': detail})
+                if ok:
+                    cat_confirmed += 1
+                    print(f"  {Colors.GREEN}[CONFIRMED]{Colors.END} "
+                          f"{Colors.WHITE}{ip}:{port}{Colors.END}  "
+                          f"{Colors.DIM}{detail}{Colors.END}")
+                else:
+                    print(f"  {Colors.DIM}[protected]{Colors.END} "
+                          f"{Colors.WHITE}{ip}:{port}{Colors.END}  "
+                          f"{Colors.DIM}{detail}{Colors.END}")
+
+        verification_results[category] = cat_results
+        grand_probed    += len(targets)
+        grand_confirmed += cat_confirmed
+        print(f"  {Colors.BOLD}→ {Colors.GREEN}{cat_confirmed}{Colors.END}{Colors.BOLD}/{len(targets)} "
+              f"confirmed unauthenticated{Colors.END}")
+
+    # Attach results to scan_data so exports can include them
+    scan_data.verification_results = verification_results
+
+    # Grand summary
+    print_separator('═', 70, Colors.CYAN)
+    print(f"{Colors.BOLD}{Colors.WHITE}VERIFICATION SUMMARY{Colors.END}")
+    print_separator('─', 70, Colors.DIM)
+    print(f"  Devices probed      : {Colors.CYAN}{grand_probed}{Colors.END}")
+    print(f"  Confirmed open      : {Colors.RED if grand_confirmed else Colors.GREEN}{grand_confirmed}{Colors.END}")
+    print(f"  Auth enforced       : {Colors.GREEN}{grand_probed - grand_confirmed}{Colors.END}")
+
+    if grand_confirmed:
+        rate = grand_confirmed / grand_probed * 100 if grand_probed else 0
+        print(f"\n  {Colors.RED}⚠️  {rate:.1f}% of sampled devices have NO authentication.{Colors.END}")
+        print(f"  {Colors.YELLOW}These are CONFIRMED exposures — not just Shodan estimates.{Colors.END}")
+    else:
+        print(f"\n  {Colors.GREEN}✓ All sampled devices appear to enforce authentication.{Colors.END}")
+
+    print_separator('═', 70, Colors.CYAN)
+
+
+# ╔═══════════════════════════════════════════════════════════════════╗
+# ║                      MODE SELECTION MENU                          ║
+# ╚═══════════════════════════════════════════════════════════════════╝
+
+def display_mode_menu():
+    """Display operation mode selection menu. Returns 1-4."""
+    print(f"\n{Colors.BOLD}{Colors.CYAN}╔═══════════════════════════════════════════╗{Colors.END}")
+    print(f"{Colors.BOLD}{Colors.CYAN}║{Colors.END}       {Colors.WHITE}SELECT OPERATION MODE{Colors.END}             {Colors.BOLD}{Colors.CYAN}║{Colors.END}")
+    print(f"{Colors.BOLD}{Colors.CYAN}╚═══════════════════════════════════════════╝{Colors.END}\n")
+
+    print(f"  {Colors.GREEN}[1]{Colors.END} {Colors.BOLD}Query Mode{Colors.END}      {Colors.DIM}— Search Shodan's indexed database (current behavior){Colors.END}")
+    print(f"  {Colors.GREEN}[2]{Colors.END} {Colors.BOLD}Scanner Mode{Colors.END}    {Colors.DIM}— On-demand active scan of IP/CIDR targets{Colors.END}")
+    print(f"  {Colors.GREEN}[3]{Colors.END} {Colors.BOLD}Monitor Mode{Colors.END}    {Colors.DIM}— Set up persistent network alerts{Colors.END}")
+    print(f"  {Colors.GREEN}[4]{Colors.END} {Colors.BOLD}Intelligence{Colors.END}    {Colors.DIM}— View Shodan protocols & active ports (free){Colors.END}")
+
+    print_separator('─', 50, Colors.DIM)
+
+    while True:
+        try:
+            choice = input(f"\n{Colors.BOLD}Select mode [1-4]: {Colors.END}").strip()
+            if choice in ['1', '2', '3', '4']:
+                return int(choice)
+            else:
+                print_status('error', "Please enter a number between 1 and 4")
+        except KeyboardInterrupt:
+            print(f"\n{Colors.YELLOW}[!] Cancelled by user{Colors.END}")
+            sys.exit(0)
+
+
+# ╔═══════════════════════════════════════════════════════════════════╗
+# ║                        SCANNER MODE                               ║
+# ╚═══════════════════════════════════════════════════════════════════╝
+
+def scanner_mode(api):
+    """On-demand active scan of IP/CIDR targets using Shodan Scanner API."""
+    print(f"\n{Colors.BOLD}{Colors.CYAN}╔═══════════════════════════════════════════╗{Colors.END}")
+    print(f"{Colors.BOLD}{Colors.CYAN}║{Colors.END}          {Colors.WHITE}SCANNER MODE{Colors.END}                    {Colors.BOLD}{Colors.CYAN}║{Colors.END}")
+    print(f"{Colors.BOLD}{Colors.CYAN}╚═══════════════════════════════════════════╝{Colors.END}\n")
+
+    # Step 1: Check scan credits
+    try:
+        loading_animation("Retrieving account information", 1)
+        info = api.info()
+        scan_credits = info.get('scan_credits', 0)
+        query_credits = info.get('query_credits', 0)
+        plan = info.get('plan', 'Unknown')
+
+        print_status('info', f"Plan: {Colors.CYAN}{plan}{Colors.END}  |  "
+                             f"Scan Credits: {Colors.GREEN if scan_credits > 0 else Colors.RED}{scan_credits}{Colors.END}  |  "
+                             f"Query Credits: {Colors.CYAN}{query_credits}{Colors.END}")
+
+        if scan_credits < 1:
+            print_status('warning', f"{Colors.YELLOW}You have no scan credits remaining.{Colors.END}")
+            print_status('info', "Scan credits can be purchased at https://account.shodan.io/")
+            print_status('info', "Continuing in read-only mode — you can still submit but the API will reject it.")
+    except shodan.APIError as e:
+        print_status('error', f"Could not retrieve account info: {Colors.RED}{e}{Colors.END}")
+
+    # Step 2: Get targets
+    print_separator('─', 60, Colors.DIM)
+    print_status('info', f"Enter IPs or CIDR ranges to scan, comma-separated.")
+    print(f"  {Colors.DIM}Example: 192.168.1.1, 10.0.0.0/24{Colors.END}")
+
+    try:
+        raw_input_targets = input(f"\n{Colors.BOLD}Targets: {Colors.END}").strip()
+    except KeyboardInterrupt:
+        print(f"\n{Colors.YELLOW}[!] Cancelled by user{Colors.END}")
+        return
+
+    if not raw_input_targets:
+        print_status('error', "No targets entered. Returning to main menu.")
+        return
+
+    ips_list = [t.strip() for t in raw_input_targets.split(',') if t.strip()]
+    print_status('success', f"Targets queued: {Colors.CYAN}{', '.join(ips_list)}{Colors.END}")
+
+    # Step 3: Show available protocols (paginated)
+    print_separator('─', 60, Colors.DIM)
+    print_status('info', "Fetching available scan protocols from Shodan...")
+    try:
+        loading_animation("Fetching protocols", 1)
+        protocols = api.protocols()
+        proto_items = sorted(protocols.items())
+        page_size = 20
+        total = len(proto_items)
+        start = 0
+
+        while start < total:
+            print(f"\n{Colors.BOLD}{Colors.CYAN}Available Protocols [{start + 1}-{min(start + page_size, total)} of {total}]:{Colors.END}")
+            for name, desc in proto_items[start:start + page_size]:
+                print(f"  {Colors.GREEN}{name:<25}{Colors.END} {Colors.DIM}{desc}{Colors.END}")
+            start += page_size
+            if start < total:
+                try:
+                    more = input(f"\n{Colors.DIM}[Press Enter for more, or 'q' to skip]{Colors.END} ").strip().lower()
+                    if more == 'q':
+                        break
+                except KeyboardInterrupt:
+                    break
+    except shodan.APIError as e:
+        print_status('warning', f"Could not fetch protocols: {Colors.YELLOW}{e}{Colors.END}")
+
+    # Step 4: Confirm scan
+    print_separator('─', 60, Colors.DIM)
+    try:
+        confirm = input(f"\n{Colors.BOLD}Submit scan for {Colors.CYAN}{', '.join(ips_list)}{Colors.END}{Colors.BOLD}? [Y/n]: {Colors.END}").strip().lower()
+    except KeyboardInterrupt:
+        print(f"\n{Colors.YELLOW}[!] Cancelled by user{Colors.END}")
+        return
+
+    if confirm not in ['', 'y', 'yes']:
+        print_status('info', "Scan cancelled by user.")
+        return
+
+    # Step 5: Submit scan
+    try:
+        print_status('scan', "Submitting scan request to Shodan...")
+        result = api.scan(ips_list)
+        scan_id = result.get('id', 'unknown')
+        count = result.get('count', 0)
+        credits_left = result.get('credits_left', '?')
+
+        print_status('success', f"Scan submitted — ID: {Colors.CYAN}{scan_id}{Colors.END}  |  "
+                                f"IPs queued: {Colors.GREEN}{count}{Colors.END}  |  "
+                                f"Credits remaining: {Colors.YELLOW}{credits_left}{Colors.END}")
+    except shodan.APIError as e:
+        print_status('error', f"Scan submission failed: {Colors.RED}{e}{Colors.END}")
+        return
+
+    # Step 6: Poll scan status
+    print_separator('─', 60, Colors.DIM)
+    print_status('info', "Polling scan status (Ctrl+C to stop polling)...")
+    spinner_chars = "⣾⣽⣻⢿⡿⣟⣯⣷"
+    i = 0
+    try:
+        while True:
+            try:
+                status_result = api.scan_status(scan_id)
+                status = status_result.get('status', 'UNKNOWN')
+            except shodan.APIError as e:
+                print_status('warning', f"Status check error: {Colors.YELLOW}{e}{Colors.END}")
+                status = 'UNKNOWN'
+
+            status_color = {
+                'SUBMITTING': Colors.YELLOW,
+                'QUEUE': Colors.YELLOW,
+                'PROCESSING': Colors.CYAN,
+                'DONE': Colors.GREEN,
+            }.get(status, Colors.DIM)
+
+            sys.stdout.write(
+                f'\r{Colors.CYAN}{spinner_chars[i % len(spinner_chars)]}{Colors.END} '
+                f'Scan Status: {status_color}{status}{Colors.END}        '
+            )
+            sys.stdout.flush()
+            i += 1
+
+            if status == 'DONE':
+                print()
+                print_status('success', "Scan completed successfully.")
+                break
+
+            time.sleep(5)
+    except KeyboardInterrupt:
+        print(f"\n{Colors.YELLOW}[!] Stopped polling. Scan may still be running in the background.{Colors.END}")
+        print_status('info', f"Use scan ID {Colors.CYAN}{scan_id}{Colors.END} to check status later.")
+        return
+
+    # Step 7: Offer to query results
+    print_separator('─', 60, Colors.DIM)
+    try:
+        query_now = input(f"\n{Colors.BOLD}Search Shodan for these IPs now? [Y/n]: {Colors.END}").strip().lower()
+    except KeyboardInterrupt:
+        print(f"\n{Colors.YELLOW}[!] Cancelled{Colors.END}")
+        return
+
+    if query_now in ['', 'y', 'yes']:
+        for target in ips_list:
+            query = f"net:{target}"
+            print_separator('─', 60, Colors.DIM)
+            print_status('scan', f"Querying: {Colors.CYAN}{query}{Colors.END}")
+            try:
+                res = api.search(query)
+                total_found = res.get('total', 0)
+                print_status('found', f"Total results: {Colors.GREEN}{total_found:,}{Colors.END}")
+                for match in res.get('matches', [])[:5]:
+                    ip = match.get('ip_str', 'N/A')
+                    port = match.get('port', 'N/A')
+                    org = match.get('org', 'N/A')
+                    print(f"  {Colors.CYAN}{ip}:{port}{Colors.END}  {Colors.DIM}{org}{Colors.END}")
+            except shodan.APIError as e:
+                print_status('error', f"Query failed: {Colors.RED}{e}{Colors.END}")
+
+
+# ╔═══════════════════════════════════════════════════════════════════╗
+# ║                        MONITOR MODE                               ║
+# ╚═══════════════════════════════════════════════════════════════════╝
+
+def monitor_mode(api):
+    """Persistent network alert management via Shodan Monitor API."""
+    while True:
+        print(f"\n{Colors.BOLD}{Colors.CYAN}╔═══════════════════════════════════════════╗{Colors.END}")
+        print(f"{Colors.BOLD}{Colors.CYAN}║{Colors.END}          {Colors.WHITE}MONITOR MODE{Colors.END}                    {Colors.BOLD}{Colors.CYAN}║{Colors.END}")
+        print(f"{Colors.BOLD}{Colors.CYAN}╚═══════════════════════════════════════════╝{Colors.END}\n")
+
+        print(f"  {Colors.GREEN}[1]{Colors.END} List active alerts")
+        print(f"  {Colors.GREEN}[2]{Colors.END} Create new alert (name + IP/CIDR)")
+        print(f"  {Colors.GREEN}[3]{Colors.END} Check alert results")
+        print(f"  {Colors.GREEN}[4]{Colors.END} Delete alert")
+        print(f"  {Colors.YELLOW}[0]{Colors.END} Back to main menu")
+        print_separator('─', 50, Colors.DIM)
+
+        try:
+            choice = input(f"\n{Colors.BOLD}Select option: {Colors.END}").strip()
+        except KeyboardInterrupt:
+            print(f"\n{Colors.YELLOW}[!] Returning to main menu{Colors.END}")
+            return
+
+        if choice == '0':
+            return
+
+        elif choice == '1':
+            # List active alerts
+            print_separator('─', 60, Colors.DIM)
+            print_status('info', "Fetching active alerts...")
+            try:
+                loading_animation("Retrieving alerts", 1)
+                alerts = api.alerts()
+                if not alerts:
+                    print_status('info', "No active alerts found.")
+                else:
+                    print(f"\n{Colors.BOLD}{Colors.CYAN}{'ID':<30} {'Name':<25} {'IP/Range':<20} {'Created'}{Colors.END}")
+                    print_separator('─', 90, Colors.DIM)
+                    for alert in alerts:
+                        alert_id = alert.get('id', 'N/A')
+                        name = alert.get('name', 'N/A')
+                        filters = alert.get('filters', {})
+                        ip_range = filters.get('ip', 'N/A') if isinstance(filters, dict) else 'N/A'
+                        created = alert.get('created', 'N/A')
+                        print(f"  {Colors.CYAN}{alert_id:<28}{Colors.END} {name:<25} {Colors.GREEN}{ip_range:<20}{Colors.END} {Colors.DIM}{created}{Colors.END}")
+                    print_status('found', f"Total alerts: {Colors.GREEN}{len(alerts)}{Colors.END}")
+            except shodan.APIError as e:
+                print_status('error', f"Could not retrieve alerts: {Colors.RED}{e}{Colors.END}")
+
+        elif choice == '2':
+            # Create new alert
+            print_separator('─', 60, Colors.DIM)
+            try:
+                alert_name = input(f"{Colors.BOLD}Alert name: {Colors.END}").strip()
+                ip_range = input(f"{Colors.BOLD}IP/CIDR range (e.g. 10.0.0.0/24): {Colors.END}").strip()
+            except KeyboardInterrupt:
+                print(f"\n{Colors.YELLOW}[!] Cancelled{Colors.END}")
+                continue
+
+            if not alert_name or not ip_range:
+                print_status('error', "Name and IP range are required.")
+                continue
+
+            try:
+                loading_animation("Creating alert", 1)
+                alert = api.create_alert(alert_name, {'ip': ip_range})
+                alert_id = alert.get('id', 'N/A')
+                print_status('success', f"Alert created — ID: {Colors.CYAN}{alert_id}{Colors.END}  Name: {Colors.GREEN}{alert_name}{Colors.END}  Range: {Colors.YELLOW}{ip_range}{Colors.END}")
+            except shodan.APIError as e:
+                print_status('error', f"Failed to create alert: {Colors.RED}{e}{Colors.END}")
+
+        elif choice == '3':
+            # Check alert results
+            print_separator('─', 60, Colors.DIM)
+            try:
+                alert_id = input(f"{Colors.BOLD}Enter alert ID: {Colors.END}").strip()
+            except KeyboardInterrupt:
+                print(f"\n{Colors.YELLOW}[!] Cancelled{Colors.END}")
+                continue
+
+            if not alert_id:
+                print_status('error', "Alert ID is required.")
+                continue
+
+            try:
+                loading_animation("Fetching alert info", 1)
+                alert_info = api.alert_info(alert_id)
+                name = alert_info.get('name', 'N/A')
+                filters = alert_info.get('filters', {})
+                ip_range = filters.get('ip', 'N/A') if isinstance(filters, dict) else 'N/A'
+                matches = alert_info.get('matches', [])
+                size = alert_info.get('size', len(matches))
+
+                print(f"\n{Colors.BOLD}Alert:{Colors.END} {Colors.CYAN}{name}{Colors.END}  |  Range: {Colors.GREEN}{ip_range}{Colors.END}  |  Matches: {Colors.YELLOW}{size}{Colors.END}")
+
+                if matches:
+                    print_separator('─', 60, Colors.DIM)
+                    for match in matches[:10]:
+                        ip = match.get('ip_str', 'N/A')
+                        port = match.get('port', 'N/A')
+                        org = match.get('org', 'N/A')
+                        print(f"  {Colors.CYAN}{ip}:{port}{Colors.END}  {Colors.DIM}{org}{Colors.END}")
+                    if size > 10:
+                        print(f"  {Colors.DIM}... and {size - 10} more{Colors.END}")
+                else:
+                    print_status('info', "No matches recorded for this alert yet.")
+            except shodan.APIError as e:
+                print_status('error', f"Could not fetch alert info: {Colors.RED}{e}{Colors.END}")
+
+        elif choice == '4':
+            # Delete alert
+            print_separator('─', 60, Colors.DIM)
+            try:
+                alert_id = input(f"{Colors.BOLD}Enter alert ID to delete: {Colors.END}").strip()
+            except KeyboardInterrupt:
+                print(f"\n{Colors.YELLOW}[!] Cancelled{Colors.END}")
+                continue
+
+            if not alert_id:
+                print_status('error', "Alert ID is required.")
+                continue
+
+            try:
+                confirm = input(f"{Colors.YELLOW}[!] Delete alert {Colors.CYAN}{alert_id}{Colors.END}{Colors.YELLOW}? [y/N]: {Colors.END}").strip().lower()
+            except KeyboardInterrupt:
+                print(f"\n{Colors.YELLOW}[!] Cancelled{Colors.END}")
+                continue
+
+            if confirm in ['y', 'yes']:
+                try:
+                    loading_animation("Deleting alert", 1)
+                    api.delete_alert(alert_id)
+                    print_status('success', f"Alert {Colors.CYAN}{alert_id}{Colors.END} deleted successfully.")
+                except shodan.APIError as e:
+                    print_status('error', f"Failed to delete alert: {Colors.RED}{e}{Colors.END}")
+            else:
+                print_status('info', "Deletion cancelled.")
+
+        else:
+            print_status('error', "Invalid option. Please enter 0-4.")
+
+
+# ╔═══════════════════════════════════════════════════════════════════╗
+# ║                    INTELLIGENCE MODE                              ║
+# ╚═══════════════════════════════════════════════════════════════════╝
+
+def show_shodan_intelligence(api):
+    """Display Shodan protocols & active ports — no credits consumed."""
+    IOT_PORTS = {554, 1883, 502, 47808, 23, 80, 443}
+
+    print(f"\n{Colors.BOLD}{Colors.CYAN}╔═══════════════════════════════════════════╗{Colors.END}")
+    print(f"{Colors.BOLD}{Colors.CYAN}║{Colors.END}    {Colors.WHITE}SHODAN INTELLIGENCE{Colors.END} {Colors.GREEN}[FREE]{Colors.END}          {Colors.BOLD}{Colors.CYAN}║{Colors.END}")
+    print(f"{Colors.BOLD}{Colors.CYAN}╚═══════════════════════════════════════════╝{Colors.END}\n")
+    print_status('info', "No query credits consumed for this view.")
+
+    # Step 1: Protocols
+    print_separator('═', 70, Colors.CYAN)
+    print(f"{Colors.BOLD}{Colors.CYAN}KNOWN PROTOCOLS{Colors.END}")
+    print_separator('─', 70, Colors.DIM)
+
+    try:
+        loading_animation("Fetching protocols", 1)
+        protocols = api.protocols()
+        proto_items = sorted(protocols.items())
+
+        col_width_name = 30
+        print(f"{Colors.BOLD}{'Protocol':<{col_width_name}} Description{Colors.END}")
+        print_separator('─', 70, Colors.DIM)
+
+        for name, desc in proto_items:
+            print(f"  {Colors.GREEN}{name:<{col_width_name - 2}}{Colors.END} {Colors.DIM}{desc}{Colors.END}")
+
+        print_status('found', f"Total protocols available: {Colors.GREEN}{len(proto_items)}{Colors.END}")
+    except shodan.APIError as e:
+        print_status('error', f"Could not fetch protocols: {Colors.RED}{e}{Colors.END}")
+
+    # Step 2: Ports
+    print_separator('═', 70, Colors.CYAN)
+    print(f"{Colors.BOLD}{Colors.CYAN}SCANNED PORTS{Colors.END}")
+    print_separator('─', 70, Colors.DIM)
+
+    try:
+        loading_animation("Fetching scanned ports", 1)
+        ports = sorted(api.ports())
+
+        # Group by range
+        ranges = [
+            ("Well-Known   (0–1023)",    [p for p in ports if p < 1024]),
+            ("Registered  (1024–49151)", [p for p in ports if 1024 <= p < 49152]),
+            ("Dynamic     (49152+)",     [p for p in ports if p >= 49152]),
+        ]
+
+        for range_label, range_ports in ranges:
+            if not range_ports:
+                continue
+            print(f"\n  {Colors.BOLD}{Colors.CYAN}{range_label}{Colors.END}")
+            port_strs = []
+            for p in range_ports:
+                if p in IOT_PORTS:
+                    port_strs.append(f"{Colors.YELLOW}{p}*{Colors.END}")
+                else:
+                    port_strs.append(f"{Colors.DIM}{p}{Colors.END}")
+            # Print 15 per line
+            line_size = 15
+            for j in range(0, len(port_strs), line_size):
+                print("    " + "  ".join(port_strs[j:j + line_size]))
+
+        print_status('found', f"Total ports scanned by Shodan: {Colors.GREEN}{len(ports)}{Colors.END}")
+
+        # Step 3: IoT cross-reference
+        print_separator('─', 70, Colors.DIM)
+        print(f"{Colors.BOLD}{Colors.YELLOW}IoT-Relevant Ports (marked with * above):{Colors.END}")
+        iot_labels = {
+            554:   "RTSP – IP Camera Streams",
+            1883:  "MQTT – IoT Message Broker",
+            502:   "Modbus – Industrial SCADA/ICS",
+            47808: "BACnet – Building Automation",
+            23:    "Telnet – Legacy/Default-Creds",
+            80:    "HTTP – Web Interfaces",
+            443:   "HTTPS – Secure Web Interfaces",
+        }
+        for port in sorted(IOT_PORTS):
+            present = port in set(ports)
+            status_icon = f"{Colors.GREEN}[ACTIVE]{Colors.END}" if present else f"{Colors.DIM}[NOT SCANNED]{Colors.END}"
+            label = iot_labels.get(port, '')
+            print(f"  {Colors.YELLOW}{port:<7}{Colors.END} {status_icon}  {Colors.DIM}{label}{Colors.END}")
+
+    except shodan.APIError as e:
+        print_status('error', f"Could not fetch ports: {Colors.RED}{e}{Colors.END}")
+
+    print_separator('═', 70, Colors.CYAN)
+    print_status('info', "Intelligence view complete. No credits were consumed.")
+
+
+# ╔═══════════════════════════════════════════════════════════════════╗
 # ║                         MAIN FUNCTION                             ║
 # ╚═══════════════════════════════════════════════════════════════════╝
 
@@ -2268,6 +2991,23 @@ def main():
 
     api_key = load_api_key()
 
+    # Mode selection
+    mode = display_mode_menu()
+
+    if mode == 2:
+        api = shodan.Shodan(api_key)
+        scanner_mode(api)
+        return
+    elif mode == 3:
+        api = shodan.Shodan(api_key)
+        monitor_mode(api)
+        return
+    elif mode == 4:
+        api = shodan.Shodan(api_key)
+        show_shodan_intelligence(api)
+        return
+
+    # mode == 1: existing Query Mode flow
     # Check requirements before proceeding
     if not check_requirements(api_key):
         print(f"\n{Colors.CYAN}[i] Exiting MOIRAGUARD...{Colors.END}\n")
