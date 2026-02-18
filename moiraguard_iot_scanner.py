@@ -2447,6 +2447,42 @@ def verify_exposure(scan_data):
     print(f"{Colors.BOLD}{Colors.CYAN}║{Colors.END}     {Colors.WHITE}ACTIVE PROTOCOL VERIFICATION ENGINE{Colors.END}           {Colors.BOLD}{Colors.CYAN}║{Colors.END}")
     print(f"{Colors.BOLD}{Colors.CYAN}╚═══════════════════════════════════════════════════════════╝{Colors.END}\n")
 
+    # ── Legal acknowledgment banner ──────────────────────────────────────────
+    print(f"{Colors.RED}{Colors.BOLD}{'█' * 70}{Colors.END}")
+    print(f"{Colors.RED}{Colors.BOLD}{'█':1}{'⚠️  LEGAL WARNING — ACTIVE PROBING':^68}{'█':1}{Colors.END}")
+    print(f"{Colors.RED}{Colors.BOLD}{'█' * 70}{Colors.END}\n")
+
+    print(f"{Colors.YELLOW}  This feature makes DIRECT outbound TCP/UDP connections to target IPs.{Colors.END}")
+    print(f"{Colors.YELLOW}  Your IP address WILL be logged by the target device, its firewall,{Colors.END}")
+    print(f"{Colors.YELLOW}  IDS/IPS, or any honeypot monitoring the service.{Colors.END}\n")
+
+    print(f"{Colors.WHITE}  By proceeding you confirm ALL of the following:{Colors.END}\n")
+    print(f"  {Colors.RED}►{Colors.END} You have {Colors.BOLD}explicit written permission{Colors.END} from the system owner to probe it.")
+    print(f"  {Colors.RED}►{Colors.END} You understand that probing without permission is {Colors.BOLD}illegal{Colors.END} under")
+    print(f"    {Colors.DIM}Morocco Law 09-08, EU Computer Misuse directives, US CFAA,{Colors.END}")
+    print(f"    {Colors.DIM}and equivalent laws in most jurisdictions.{Colors.END}")
+    print(f"  {Colors.RED}►{Colors.END} A Shodan result does {Colors.BOLD}not{Colors.END} constitute authorisation to connect.")
+    print(f"  {Colors.RED}►{Colors.END} {Colors.BOLD}MOIRAGUARD and its author bear zero legal liability{Colors.END} for any")
+    print(f"    {Colors.DIM}consequences arising from your use of this feature.{Colors.END}")
+    print(f"  {Colors.RED}►{Colors.END} You assume {Colors.BOLD}full personal and legal responsibility{Colors.END} for every")
+    print(f"    {Colors.DIM}connection made by this tool on your behalf.{Colors.END}\n")
+
+    print(f"{Colors.RED}{Colors.BOLD}{'█' * 70}{Colors.END}\n")
+
+    try:
+        ack = input(f"{Colors.BOLD}Type {Colors.RED}I AGREE{Colors.END}{Colors.BOLD} to acknowledge and continue, or anything else to cancel: {Colors.END}").strip()
+    except KeyboardInterrupt:
+        print(f"\n{Colors.YELLOW}[!] Cancelled{Colors.END}")
+        return
+
+    if ack != 'I AGREE':
+        print_status('info', "Acknowledgment not confirmed. Verification cancelled.")
+        return
+
+    print_status('success', "Acknowledgment recorded. Proceeding with verification.")
+
+    # ────────────────────────────────────────────────────────────────────────
+
     # Require verbose scan data
     total_ips = sum(len(cat['devices']) for cat in scan_data.categories.values())
     if total_ips == 0:
@@ -2454,10 +2490,8 @@ def verify_exposure(scan_data):
         print_status('info', "Re-run Query Mode with Verbose mode selected to collect IPs.")
         return
 
-    print_status('warning', f"{Colors.YELLOW}This makes DIRECT TCP/UDP connections to discovered IPs.{Colors.END}")
-    print_status('info',    "Only probe systems you are authorised to test.")
-    print_status('info',    f"{Colors.CYAN}{total_ips}{Colors.END} IPs available across "
-                            f"{Colors.CYAN}{len([c for c in scan_data.categories.values() if c['devices']])}{Colors.END} categories.")
+    print_status('info', f"{Colors.CYAN}{total_ips}{Colors.END} IPs available across "
+                         f"{Colors.CYAN}{len([c for c in scan_data.categories.values() if c['devices']])}{Colors.END} categories.")
     print_separator('─', 60, Colors.DIM)
 
     try:
